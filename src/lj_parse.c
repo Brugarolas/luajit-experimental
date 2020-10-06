@@ -2053,6 +2053,7 @@ static BinOpr token2binop(LexToken tok)
   case '%':	return OPR_MOD;
   case '^':	return OPR_POW;
   case TK_concat: return OPR_CONCAT;
+  case TK_ne_classic: /* fall-through */
   case TK_ne:	return OPR_NE;
   case TK_eq:	return OPR_EQ;
   case '<':	return OPR_LT;
@@ -2086,7 +2087,7 @@ static BinOpr expr_binop(LexState *ls, ExpDesc *v, uint32_t limit);
 static void expr_unop(LexState *ls, ExpDesc *v)
 {
   BCOp op;
-  if (ls->tok == TK_not) {
+  if (ls->tok == TK_not || ls->tok == '!') {
     op = BC_NOT;
   } else if (ls->tok == '-') {
     op = BC_UNM;
