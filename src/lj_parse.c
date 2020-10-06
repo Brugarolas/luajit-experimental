@@ -2060,7 +2060,9 @@ static BinOpr token2binop(LexToken tok)
   case TK_le:	return OPR_LE;
   case '>':	return OPR_GT;
   case TK_ge:	return OPR_GE;
+  case TK_and_classic: /* fall-through */
   case TK_and:	return OPR_AND;
+  case TK_or_classic: /* fall-through */
   case TK_or:	return OPR_OR;
   default:	return OPR_NOBINOPR;
   }
