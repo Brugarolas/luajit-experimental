@@ -319,6 +319,36 @@ static LexToken lex_scan(LexState *ls, TValue *tv)
     case '\f':
       lex_next(ls);
       continue;
+    case '/':
+      lex_next(ls);
+      if (ls->c != '/' && ls->c != '*') return '/';
+      /* Long comment with slash-star */
+      if (ls->c == '*') {
+        lex_next(ls);
+        for (;;) {
+          if (ls->c == LEX_EOF) {
+            lj_lex_error(ls, '/', LJ_ERR_NEVER_ENDING_COMMENT);
+            break;
+          }
+          if (ls->c == '*') {
+            lex_next(ls);
+            if (ls->c == LEX_EOF) {
+              lj_lex_error(ls, '/', LJ_ERR_NEVER_ENDING_COMMENT);
+              break;
+            }
+            if (ls->c == '/') {
+              lex_next(ls);
+              break;
+            }
+          }
+          lex_next(ls);
+        }
+        continue;
+      }
+      /* Short comment "// blah" */
+      while (!lex_iseol(ls) && ls->c != LEX_EOF)
+	      lex_next(ls);
+      continue;
     case '-':
       lex_next(ls);
       if (ls->c != '-') return '-';
