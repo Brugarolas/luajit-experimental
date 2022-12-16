@@ -148,7 +148,6 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
-LJLIB_PUSH(top-6) LJLIB_SET(gc_mode)
 LJLIB_PUSH(top-5) LJLIB_SET(os)
 LJLIB_PUSH(top-4) LJLIB_SET(arch)
 LJLIB_PUSH(top-3) LJLIB_SET(version_num)

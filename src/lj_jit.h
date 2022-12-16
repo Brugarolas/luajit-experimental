@@ -126,7 +126,7 @@
   _(\007, tryside,	4)	/* # of attempts to compile a side trace. */ \
   \
   _(\012, instunroll,	4)	/* Max. unroll for instable loops. */ \
-  _(\012, loopunroll,	7)	/* Max. unroll for loop ops in side traces. */ \
+  _(\012, loopunroll,	15)	/* Max. unroll for loop ops in side traces. */ \
   _(\012, callunroll,	3)	/* Max. unroll for recursive calls. */ \
   _(\011, recunroll,	2)	/* Min. unroll for true recursion. */ \
   \

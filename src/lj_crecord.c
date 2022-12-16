@@ -577,14 +577,14 @@ static TRef crec_tv_ct(jit_State *J, CType *s, CTypeID sid, TRef sp)
   } else if (ctype_iscomplex(sinfo)) {  /* Unbox/box complex. */
     ptrdiff_t esz = (ptrdiff_t)(s->size >> 1);
     TRef ptr, tr1, tr2, dp;
-    dp  = emitir(IRTG(IR_CNEW, IRT_CDATA), lj_ir_kint(J, sid), TREF_NIL);
+    dp = emitir(IRTG(IR_CNEW, IRT_CDATA), lj_ir_kint(J, sid), TREF_NIL);
     tr1 = emitir(IRT(IR_XLOAD, t), sp, 0);
-    ptr = emitir(IRT(IR_ADD  , IRT_PTR), sp, lj_ir_kintp(J, esz));
+    ptr = emitir(IRT(IR_ADD, IRT_PTR), sp, lj_ir_kintp(J, esz));
     tr2 = emitir(IRT(IR_XLOAD, t), ptr, 0);
-    ptr = emitir(IRT(IR_ADD   , IRT_PTR), dp, lj_ir_kintp(J, sizeof(GCcdata)));
-          emitir(IRT(IR_XSTORE, t), ptr, tr1);
-    ptr = emitir(IRT(IR_ADD   , IRT_PTR), dp, lj_ir_kintp(J, sizeof(GCcdata)+esz));
-          emitir(IRT(IR_XSTORE, t), ptr, tr2);
+    ptr = emitir(IRT(IR_ADD, IRT_PTR), dp, lj_ir_kintp(J, sizeof(GCcdata)));
+    emitir(IRT(IR_XSTORE, t), ptr, tr1);
+    ptr = emitir(IRT(IR_ADD, IRT_PTR), dp, lj_ir_kintp(J, sizeof(GCcdata)+esz));
+    emitir(IRT(IR_XSTORE, t), ptr, tr2);
     return dp;
   } else {
     /* NYI: copyval of vectors. */
