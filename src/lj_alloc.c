@@ -6,7 +6,7 @@
 **
 **   This is a version (aka dlmalloc) of malloc/free/realloc written by
 **   Doug Lea and released to the public domain, as explained at
-**   http://creativecommons.org/licenses/publicdomain.
+**   https://creativecommons.org/licenses/publicdomain.
 **
 **   * Version pre-2.8.4 Wed Mar 29 19:46:29 2006    (dl at gee)
 **
@@ -16,8 +16,8 @@
 ** If you want to use dlmalloc in another project, you should get
 ** the original from: ftp://gee.cs.oswego.edu/pub/misc/
 ** For thread-safe derivatives, take a look at:
-** - ptmalloc: http://www.malloc.de/
-** - nedmalloc: http://www.nedprod.com/programs/portable/nedmalloc/
+** - ptmalloc: https://www.malloc.de/
+** - nedmalloc: https://www.nedprod.com/programs/portable/nedmalloc/
 */
 
 #define lj_alloc_c
@@ -330,7 +330,7 @@ static void *mmap_plain(size_t size)
 #define CALL_MMAP(prng, size)	mmap_plain(size)
 #endif
 
-#if LJ_64 && !LJ_GC64 && ((defined(__FreeBSD__) && __FreeBSD__ < 10) || defined(__FreeBSD_kernel__)) && !LJ_TARGET_PS4
+#if LJ_64 && !LJ_GC64 && ((defined(__FreeBSD__) && __FreeBSD__ < 10) || defined(__FreeBSD_kernel__)) && !LJ_TARGET_PS4 && !LJ_TARGET_PS5
 
 #include <sys/resource.h>
 
@@ -365,7 +365,7 @@ static void *CALL_MREMAP_(void *ptr, size_t osz, size_t nsz, int flags)
 #define CALL_MREMAP(addr, osz, nsz, mv) CALL_MREMAP_((addr), (osz), (nsz), (mv))
 #define CALL_MREMAP_NOMOVE	0
 #define CALL_MREMAP_MAYMOVE	1
-#if LJ_64 && !LJ_GC64
+#if LJ_64 && (!LJ_GC64 || LJ_TARGET_ARM64)
 #define CALL_MREMAP_MV		CALL_MREMAP_NOMOVE
 #else
 #define CALL_MREMAP_MV		CALL_MREMAP_MAYMOVE
