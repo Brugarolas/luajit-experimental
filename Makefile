@@ -65,7 +65,8 @@ INSTALL_TSYM= $(INSTALL_BIN)/$(INSTALL_TSYMNAME)
 INSTALL_PC= $(INSTALL_PKGCONFIG)/$(INSTALL_PCNAME)
 
 INSTALL_DIRS= $(INSTALL_BIN) $(INSTALL_LIB) $(INSTALL_INC) $(INSTALL_MAN) \
-  $(INSTALL_PKGCONFIG) $(INSTALL_JITLIB) $(INSTALL_LMOD) $(INSTALL_CMOD)
+  $(INSTALL_PKGCONFIG) $(INSTALL_JITLIB) $(INSTALL_LMOD) $(INSTALL_CMOD) \
+  $(INSTALL_LJLIBD)/compat53 $(INSTALL_LJLIBD)/compat54
 UNINSTALL_DIRS= $(INSTALL_JITLIB) $(INSTALL_LJLIBD) $(INSTALL_INC) \
   $(INSTALL_LMOD) $(INSTALL_LMODD) $(INSTALL_CMOD) $(INSTALL_CMODD)
 
@@ -95,6 +96,8 @@ FILES_JITLIB= bc.lua bcsave.lua dump.lua p.lua v.lua zone.lua \
 	      dis_mips64.lua dis_mips64el.lua \
 	      dis_mips64r6.lua dis_mips64r6el.lua \
 	      vmdef.lua
+FILES_COMPAT53= utf8.lua
+FILES_COMPAT54= utf8.lua
 
 ifeq (,$(findstring Windows,$(OS)))
   HOST_SYS:= $(shell uname -s)
@@ -136,6 +139,8 @@ install: $(INSTALL_DEP)
 	  $(RM) $(FILE_PC).tmp
 	cd src && $(INSTALL_F) $(FILES_INC) $(INSTALL_INC)
 	cd src/jit && $(INSTALL_F) $(FILES_JITLIB) $(INSTALL_JITLIB)
+	cd src/compat53 && $(INSTALL_F) $(FILES_COMPAT53) $(INSTALL_LJLIBD)/compat53
+	cd src/compat54 && $(INSTALL_F) $(FILES_COMPAT54) $(INSTALL_LJLIBD)/compat54
 	@echo "==== Successfully installed LuaJIT $(VERSION) to $(PREFIX) ===="
 	@echo ""
 	@echo "Note: the development releases deliberately do NOT install a symlink for luajit"
@@ -150,6 +155,12 @@ uninstall:
 	$(UNINSTALL) $(INSTALL_T) $(INSTALL_STATIC) $(INSTALL_DYN) $(INSTALL_SHORT1) $(INSTALL_SHORT2) $(INSTALL_MAN)/$(FILE_MAN) $(INSTALL_PC)
 	for file in $(FILES_JITLIB); do \
 	  $(UNINSTALL) $(INSTALL_JITLIB)/$$file; \
+	  done
+	for file in $(FILES_COMPAT53); do \
+	  $(UNINSTALL) $(INSTALL_LJLIBD)/compat53/$$file; \
+	  done
+	for file in $(FILES_COMPAT54); do \
+	  $(UNINSTALL) $(INSTALL_LJLIBD)/compat54/$$file; \
 	  done
 	for file in $(FILES_INC); do \
 	  $(UNINSTALL) $(INSTALL_INC)/$$file; \
