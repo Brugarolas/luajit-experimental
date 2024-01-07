@@ -27,6 +27,7 @@ local function usage()
   io.stderr:write[[
 Save LuaJIT bytecode: luajit -b[options] input output
   -l        Only list bytecode.
+  -L        Only list bytecode with lineinfo.
   -s        Strip debug info (default).
   -g        Keep debug info.
   -n name   Set module name (default: auto-detect from input name).
@@ -646,6 +647,7 @@ local function docmd(...)
   local arg = {...}
   local n = 1
   local list = false
+  local lineinfo = false
   local ctx = {
     strip = true, arch = jit.arch, os = jit.os:lower(),
     type = false, modname = false,
@@ -659,6 +661,9 @@ local function docmd(...)
 	local opt = a:sub(m, m)
 	if opt == "l" then
 	  list = true
+	elseif opt == "L" then
+	  list = true
+	  lineinfo = true
 	elseif opt == "s" then
 	  ctx.strip = true
 	elseif opt == "g" then

@@ -361,6 +361,35 @@ static int asm_fusemadd(ASMState *as, IRIns *ir, A64Ins ai, A64Ins air)
   return 0;
 }
 
+/* Fuse FP neg-multiply-add/sub. */
+static int asm_fusenmadd(ASMState *as, IRIns *ir, A64Ins ai, A64Ins air)
+{
+  IRRef ref = ir->op1;
+  IRIns *irn = IR(ref);
+  if (irn->o != IR_ADD && irn->o != IR_SUB)
+    return 0;
+
+  if (!mayfuse(as, ref))
+    return 0;
+
+  IRRef lref = irn->op1, rref = irn->op2;
+  IRIns *irm;
+  if (lref != rref &&
+      ((mayfuse(as, lref) && (irm = IR(lref), irm->o == IR_MUL) &&
+       ra_noreg(irm->r)) ||
+       (mayfuse(as, rref) && (irm = IR(rref), irm->o == IR_MUL) &&
+       (rref = lref, ra_noreg(irm->r))))) {
+    Reg dest = ra_dest(as, ir, RSET_FPR);
+    Reg add = ra_hintalloc(as, rref, dest, RSET_FPR);
+    Reg left = ra_alloc2(as, irm,
+			 rset_exclude(rset_exclude(RSET_FPR, dest), add));
+    Reg right = (left >> 8); left &= 255;
+    emit_dnma(as, (irn->o == IR_ADD ? ai : air), (dest & 31), (left & 31), (right & 31), (add & 31));
+    return 1;
+  }
+  return 0;
+}
+
 /* Fuse BAND + BSHL/BSHR into UBFM. */
 static int asm_fuseandshift(ASMState *as, IRIns *ir)
 {
@@ -1048,10 +1077,30 @@ static void asm_xload(ASMState *as, IRIns *ir)
   asm_fusexref(as, asm_fxloadins(ir), dest, ir->op1, RSET_GPR);
 }
 
+static int maybe_zero_val(ASMState *as, IRRef ref)
+{
+  IRIns *ir = IR(ref);
+
+  switch(ir->o) {
+  case IR_KNULL:
+    return 1;
+  case IR_KINT:
+    return 0 == ir->i;
+  case IR_KINT64:
+    return 0 == ir_kint64(ir)->u64;
+  }
+
+  return 0;
+}
+
 static void asm_xstore(ASMState *as, IRIns *ir)
 {
   if (ir->r != RID_SINK) {
-    Reg src = ra_alloc1(as, ir->op2, irt_isfp(ir->t) ? RSET_FPR : RSET_GPR);
+    Reg src;
+    if (irref_isk(ir->op2) && maybe_zero_val(as, ir->op2))
+      src = RID_ZERO;
+    else
+      src = ra_alloc1(as, ir->op2, irt_isfp(ir->t) ? RSET_FPR : RSET_GPR);
     asm_fusexref(as, asm_fxstoreins(ir), src, ir->op1,
 		 rset_exclude(RSET_GPR, src));
   }
@@ -1247,7 +1296,12 @@ static void asm_cnew(ASMState *as, IRIns *ir)
   /* Initialize immutable cdata object. */
   if (ir->o == IR_CNEWI) {
     int32_t ofs = sizeof(GCcdata);
-    Reg r = ra_alloc1(as, ir->op2, allow);
+    Reg r;
+    if (irref_isk(ir->op2) && maybe_zero_val(as, ir->op2))
+      r = RID_ZERO;
+    else
+      r = ra_alloc1(as, ir->op2, allow);
+
     lj_assertA(sz == 4 || sz == 8, "bad CNEWI size %d", sz);
     emit_lso(as, sz == 8 ? A64I_STRx : A64I_STRw, r, RID_RET, ofs);
   } else if (ir->op2 != REF_NIL) {  /* Create VLA/VLS/aligned cdata. */
@@ -1263,7 +1317,7 @@ static void asm_cnew(ASMState *as, IRIns *ir)
 
   /* Initialize gct and ctypeid. lj_mem_newgco() already sets marked. */
   {
-    Reg r = (id < 65536) ? RID_X1 : ra_allock(as, id, allow);
+    Reg r = id == 0 ? RID_ZERO : (id < 65536) ? RID_X1 : ra_allock(as, id, allow);
     emit_lso(as, A64I_STRB, RID_TMP, RID_RET, offsetof(GCcdata, gct));
     emit_lso(as, A64I_STRH, r, RID_RET, offsetof(GCcdata, ctypeid));
     emit_d(as, A64I_MOVZw | A64F_U16(~LJ_TCDATA), RID_TMP);
@@ -1461,7 +1515,8 @@ static void asm_mul(ASMState *as, IRIns *ir)
 static void asm_neg(ASMState *as, IRIns *ir)
 {
   if (irt_isnum(ir->t)) {
-    asm_fpunary(as, ir, A64I_FNEGd);
+    if (!asm_fusenmadd(as, ir, A64I_FNMADDd, A64I_FNMSUBd))
+      asm_fpunary(as, ir, A64I_FNEGd);
     return;
   }
   asm_intneg(as, ir);

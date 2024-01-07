@@ -300,6 +300,8 @@ lua_State *lj_newstate(lua_Alloc allocf, void *allocd,
     return NULL;
   }
   L->status = LUA_OK;
+  L->exdata = NULL;
+  L->exdata2 = NULL;
   return L;
 }
 

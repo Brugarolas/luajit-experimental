@@ -53,9 +53,9 @@ CCOPT_arm64=
 CCOPT_ppc=
 CCOPT_mips=
 #
-CCDEBUG=
+#CCDEBUG=
 # Uncomment the next line to generate debug information:
-#CCDEBUG= -g
+CCDEBUG= -g
 #
 CCWARN= -Wall
 # Uncomment the next line to enable more warnings:
@@ -243,6 +243,9 @@ else
 ifneq (,$(findstring LJ_TARGET_ARM ,$(TARGET_TESTARCH)))
   TARGET_LJARCH= arm
 else
+ifneq (,$(findstring LJ_TARGET_S390X ,$(TARGET_TESTARCH)))
+  TARGET_LJARCH= s390x
+else
 ifneq (,$(findstring LJ_TARGET_ARM64 ,$(TARGET_TESTARCH)))
   ifneq (,$(findstring __AARCH64EB__ ,$(TARGET_TESTARCH)))
     TARGET_ARCH= -D__AARCH64EB__=1
@@ -268,6 +271,7 @@ ifneq (,$(findstring LJ_TARGET_MIPS ,$(TARGET_TESTARCH)))
   endif
 else
   $(error Unsupported target architecture)
+endif
 endif
 endif
 endif
@@ -465,7 +469,16 @@ ifeq (ppc,$(TARGET_LJARCH))
     DASM_AFLAGS+= -D GPR64
   endif
   ifeq (PS3,$(TARGET_SYS))
-    DASM_AFLAGS+= -D PPE -D TOC
+    DASM_AFLAGS+= -D PPE
+  endif
+  ifneq (,$(findstring LJ_ARCH_PPC_OPD 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D OPD
+  endif
+  ifneq (,$(findstring LJ_ARCH_PPC_OPDENV 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D OPDENV
+  endif
+  ifneq (,$(findstring LJ_ARCH_PPC_ELFV2 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D ELFV2
   endif
 endif
 endif
@@ -513,10 +526,16 @@ LJCORE_O= lj_assert.o lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o lj_buf.o \
 	  lj_ctype.o lj_cdata.o lj_cconv.o lj_ccall.o lj_ccallback.o \
 	  lj_carith.o lj_clib.o lj_cparse.o lj_arena.o \
 	  lj_lib.o lj_alloc.o lib_aux.o \
-	  $(LJLIB_O) lib_init.o
+	  $(LJLIB_O) lib_init.o lj_str_hash.o
+
+ifeq (x64,$(TARGET_LJARCH))
+  lj_str_hash-CFLAGS = -msse4.2
+endif
+
+F_CFLAGS = $($(patsubst %.c,%-CFLAGS,$<))
 
 LJVMCORE_O= $(LJVM_O) $(LJCORE_O)
-LJVMCORE_DYNO= $(LJVMCORE_O:.o=_dyn.o)
+LJVMCORE_DYNO= $(LJVMCORE_O:.o=_dyn.o) lj_init_dyn.o
 
 LIB_VMDEF= jit/vmdef.lua
 LIB_VMDEFP= $(LIB_VMDEF)
@@ -538,7 +557,7 @@ ALL_RM= $(ALL_T) $(ALL_GEN) *.o host/*.o $(WIN_RM)
 ##############################################################################
 
 # Mixed mode defaults.
-TARGET_O= $(LUAJIT_A)
+TARGET_O= lj_init.o $(LUAJIT_A)
 TARGET_T= $(LUAJIT_T) $(LUAJIT_SO)
 TARGET_DEP= $(LIB_VMDEF) $(LUAJIT_SO)
 
@@ -620,7 +639,7 @@ E= @echo
 default all:	$(TARGET_T)
 
 amalg:
-	$(MAKE) all "LJCORE_O=ljamalg.o"
+	$(MAKE) all "LJCORE_O=ljamalg.o lj_str_hash.o"
 
 clean:
 	$(HOST_RM) $(ALL_RM)
@@ -702,8 +721,8 @@ lj_folddef.h: $(BUILDVM_T) lj_opt_fold.c
 
 %.o: %.c
 	$(E) "CC        $@"
-	$(Q)$(TARGET_DYNCC) $(TARGET_ACFLAGS) -c -o $(@:.o=_dyn.o) $<
-	$(Q)$(TARGET_CC) $(TARGET_ACFLAGS) -c -o $@ $<
+	$(Q)$(TARGET_DYNCC) $(TARGET_ACFLAGS) $(F_CFLAGS) -c -o $(@:.o=_dyn.o) $<
+	$(Q)$(TARGET_CC) $(TARGET_ACFLAGS) $(F_CFLAGS) -c -o $@ $<
 
 %.o: %.S
 	$(E) "ASM       $@"

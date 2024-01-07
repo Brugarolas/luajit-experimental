@@ -321,6 +321,8 @@ void lj_trace_initstate(global_State *g)
   jit_State *J = G2J(g);
   TValue *tv;
 
+  J->prng = g->prng;
+
   /* Initialize aligned SIMD constants. */
   tv = LJ_KSIMD(J, LJ_KSIMD_ABS);
   tv[0].u64 = U64x(7fffffff,ffffffff);
@@ -399,7 +401,7 @@ static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
     if (mref(J->penalty[i].pc, const BCIns) == pc) {  /* Cache slot found? */
       /* First try to bump its hotcount several times. */
       val = ((uint32_t)J->penalty[i].val << 1) +
-	    (lj_prng_u64(&J2G(J)->prng) & ((1u<<PENALTY_RNDBITS)-1));
+	    (lj_prng_u64(&J->prng) & ((1u<<PENALTY_RNDBITS)-1));
       if (val > PENALTY_MAX) {
 	blacklist_pc(pt, pc);  /* Blacklist it, if that didn't help. */
 	return;
@@ -423,6 +425,9 @@ static void trace_start(jit_State *J)
 {
   lua_State *L;
   TraceNo traceno;
+#ifdef LUA_USE_TRACE_LOGS
+  const BCIns *pc = J->pc;
+#endif
 
   if ((J->pt->flags & PROTO_NOJIT)) {  /* JIT disabled for this proto? */
     if (J->parent == 0 && J->exitno == 0 && bc_op(*J->pc) != BC_ITERN) {
@@ -489,6 +494,9 @@ static void trace_start(jit_State *J)
     }
   );
   lj_record_setup(J);
+#ifdef LUA_USE_TRACE_LOGS
+  lj_log_trace_start_record(L, (unsigned) J->cur.traceno, pc, J->fn);
+#endif
 }
 
 /* Stop tracing. */
@@ -631,16 +639,16 @@ static int trace_abort(jit_State *J)
       setintV(L->top++, traceno);
       /* Find original Lua function call to generate a better error message. */
       for (frame = J->L->base-1, pc = J->pc; ; frame = frame_prev(frame)) {
-	if (isluafunc(frame_func(frame))) {
-	  pos = proto_bcpos(funcproto(frame_func(frame)), pc);
-	  break;
-	} else if (frame_prev(frame) <= bot) {
-	  break;
-	} else if (frame_iscont(frame)) {
-	  pc = frame_contpc(frame) - 1;
-	} else {
-	  pc = frame_pc(frame) - 1;
-	}
+        if (isluafunc(frame_func(frame))) {
+          pos = proto_bcpos(funcproto(frame_func(frame)), pc);
+          break;
+        } else if (frame_prev(frame) <= bot) {
+          break;
+        } else if (frame_iscont(frame)) {
+          pc = frame_contpc(frame) - 1;
+        } else {
+          pc = frame_pc(frame) - 1;
+        }
       }
       setfuncV(L, L->top++, frame_func(frame));
       setintV(L->top++, pos);
@@ -944,7 +952,9 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   } else if ((J->flags & JIT_F_ON)) {
     trace_hotside(J, pc);
   }
+
   /* Return MULTRES or 0 or -17. */
+
   ERRNO_RESTORE
   switch (bc_op(*pc)) {
   case BC_CALLM: case BC_CALLMT:
