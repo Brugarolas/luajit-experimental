@@ -1,6 +1,6 @@
 /*
 ** Lua parser (source code -> bytecode).
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -964,22 +964,22 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
 #if LJ_HASFFI
       if (e->k == VKCDATA) {  /* Fold in-place since cdata is not interned. */
 	GCcdata *cd = cdataV(&e->u.nval);
-	int64_t *p = (int64_t *)cdataptr(cd);
+	uint64_t *p = (uint64_t *)cdataptr(cd);
 	if (cd->ctypeid == CTID_COMPLEX_DOUBLE)
-	  p[1] ^= (int64_t)U64x(80000000,00000000);
+	  p[1] ^= U64x(80000000,00000000);
 	else
-	  *p = -*p;
+	  *p = ~*p+1u;
 	return;
       } else
 #endif
       if (expr_isnumk(e) && !expr_numiszero(e)) {  /* Avoid folding to -0. */
 	TValue *o = expr_numtv(e);
 	if (tvisint(o)) {
-	  int32_t k = intV(o);
-	  if (k == -k)
+	  int32_t k = intV(o), negk = (int32_t)(~(uint32_t)k+1u);
+	  if (k == negk)
 	    setnumV(o, -(lua_Number)k);
 	  else
-	    setintV(o, -k);
+	    setintV(o, negk);
 	  return;
 	} else {
 	  o->u64 ^= U64x(80000000,00000000);
@@ -1554,7 +1554,7 @@ static void fs_fixup_ret(FuncState *fs)
 	/* Replace with UCLO plus branch. */
 	fs->bcbase[pc].ins = BCINS_AD(BC_UCLO, 0, offset);
 	break;
-      case BC_UCLO:
+      case BC_FNEW:
 	return;  /* We're done. */
       default:
 	break;
@@ -1752,7 +1752,8 @@ static void expr_table(LexState *ls, ExpDesc *e)
     expr(ls, &val);
     if (expr_isk(&key) && key.k != VKNIL &&
 	(key.k == VKSTR || expr_isk_nojump(&val))) {
-      TValue k, *v;
+      TValue k = {0};
+      TValue *v;
       if (!t) {  /* Create template table on demand. */
 	BCReg kidx;
 	t = lj_tab_new(fs->L, needarr ? narr : 0, hsize2hbits(nhash));
@@ -2513,11 +2514,14 @@ static void parse_for_num(LexState *ls, GCstr *varname, BCLine line)
 */
 static int predict_next(LexState *ls, FuncState *fs, BCPos pc)
 {
-  BCIns ins = fs->bcbase[pc].ins;
+  BCIns ins;
   GCstr *name;
   cTValue *o;
+  if (pc >= fs->bclim) return 0;
+  ins = fs->bcbase[pc].ins;
   switch (bc_op(ins)) {
   case BC_MOV:
+    if (bc_d(ins) >= fs->nactvar) return 0;
     name = gco2str(gcref(var_get(ls, fs, bc_d(ins)).name));
     break;
   case BC_UGET:
