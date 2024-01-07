@@ -1,12 +1,13 @@
 /*
 ** Common definitions for the JIT compiler.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_JIT_H
 #define _LJ_JIT_H
 
 #include "lj_obj.h"
+#if LJ_HASJIT
 #include "lj_ir.h"
 
 /* -- JIT engine flags ---------------------------------------------------- */
@@ -87,10 +88,11 @@
 #define JIT_F_OPT_ABC		(JIT_F_OPT << 7)
 #define JIT_F_OPT_SINK		(JIT_F_OPT << 8)
 #define JIT_F_OPT_FUSE		(JIT_F_OPT << 9)
+#define JIT_F_OPT_FMA		(JIT_F_OPT << 10)
 
 /* Optimizations names for -O. Must match the order above. */
 #define JIT_F_OPTSTRING	\
-  "\4fold\3cse\3dce\3fwd\3dse\6narrow\4loop\3abc\4sink\4fuse"
+  "\4fold\3cse\3dce\3fwd\3dse\6narrow\4loop\3abc\4sink\4fuse\3fma"
 
 /* Optimization levels set a fixed combination of flags. */
 #define JIT_F_OPT_0	0
@@ -99,11 +101,12 @@
 #define JIT_F_OPT_3	(JIT_F_OPT_2|\
   JIT_F_OPT_FWD|JIT_F_OPT_DSE|JIT_F_OPT_ABC|JIT_F_OPT_SINK|JIT_F_OPT_FUSE)
 #define JIT_F_OPT_DEFAULT	JIT_F_OPT_3
+/* Note: FMA is not set by default. */
 
 /* -- JIT engine parameters ----------------------------------------------- */
 
 #if LJ_TARGET_WINDOWS || LJ_64
-/* See: http://blogs.msdn.com/oldnewthing/archive/2003/10/08/55239.aspx */
+/* See: https://devblogs.microsoft.com/oldnewthing/20031008-00/?p=42223 */
 #define JIT_P_sizemcode_DEFAULT		64
 #else
 /* Could go as low as 4K, but the mmap() overhead would be rather high. */
@@ -257,11 +260,12 @@ typedef struct GCtrace {
   GCHeader;
   uint16_t nsnap;	/* Number of snapshots. */
   IRRef nins;		/* Next IR instruction. Biased with REF_BIAS. */
+  GCRef nextgc;
 #if LJ_GC64
   uint32_t unused_gc64;
 #endif
-  GCRef gclist;
   IRIns *ir;		/* IR instructions/constants. Biased with REF_BIAS. */
+  GCRef gclist;
   IRRef nk;		/* Lowest IR constant. Biased with REF_BIAS. */
   uint32_t nsnapmap;	/* Number of snapshot map elements. */
   SnapShot *snap;	/* Snapshot array. */
@@ -271,6 +275,9 @@ typedef struct GCtrace {
   BCIns startins;	/* Original bytecode of starting instruction. */
   MSize szmcode;	/* Size of machine code. */
   MCode *mcode;		/* Start of machine code. */
+#if LJ_ABI_PAUTH
+  ASMFunction mcauth;	/* Start of machine code, with ptr auth applied. */
+#endif
   MSize mcloop;		/* Offset of loop start in machine code. */
   uint16_t nchild;	/* Number of child traces (root trace only). */
   uint16_t spadjust;	/* Stack pointer adjustment (offset in bytes). */
@@ -293,6 +300,7 @@ typedef struct GCtrace {
   check_exp((n)>0 && (MSize)(n)<J->sizetrace, (GCtrace *)gcref(J->trace[(n)]))
 
 LJ_STATIC_ASSERT(offsetof(GChead, gclist) == offsetof(GCtrace, gclist));
+LJ_STATIC_ASSERT(offsetof(GChead, nextgc) == offsetof(GCtrace, nextgc));
 
 static LJ_AINLINE MSize snap_nextofs(GCtrace *T, SnapShot *snap)
 {
@@ -372,6 +380,7 @@ enum {
 #endif
   LJ_K64__MAX,
 };
+#define LJ_K64__USED	(LJ_TARGET_X86ORX64 || LJ_TARGET_MIPS)
 
 enum {
 #if LJ_TARGET_X86ORX64
@@ -390,6 +399,7 @@ enum {
 #endif
   LJ_K32__MAX
 };
+#define LJ_K32__USED	(LJ_TARGET_X86ORX64 || LJ_TARGET_PPC || LJ_TARGET_MIPS)
 
 /* Get 16 byte aligned pointer to SIMD constant. */
 #define LJ_KSIMD(J, n) \
@@ -444,9 +454,13 @@ typedef struct jit_State {
   int32_t framedepth;	/* Current frame depth. */
   int32_t retdepth;	/* Return frame depth (count of RETF). */
 
+#if LJ_K32__USED
   uint32_t k32[LJ_K32__MAX];  /* Common 4 byte constants used by backends. */
+#endif
   TValue ksimd[LJ_KSIMD__MAX*2+1];  /* 16 byte aligned SIMD constants. */
+#if LJ_K64__USED
   TValue k64[LJ_K64__MAX];  /* Common 8 byte constants. */
+#endif
 
   IRIns *irbuf;		/* Temp. IR instruction buffer. Biased with REF_BIAS. */
   IRRef irtoplim;	/* Upper limit of instuction buffer (biased). */
@@ -502,6 +516,11 @@ typedef struct jit_State {
   MCode *mcbot;		/* Bottom of current mcode area. */
   size_t szmcarea;	/* Size of current mcode area. */
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
+#ifdef COUNTS
+  size_t tracenum;	/* Overall number of traces. */
+  size_t nsnaprestore;	/* Overall number of snap restores. */
+  size_t ntraceabort;	/* Overall number of abort traces. */
+#endif
 
   TValue errinfo;	/* Additional info element for trace errors. */
 
@@ -518,6 +537,7 @@ typedef struct jit_State {
 #define lj_assertJ(c, ...)	lj_assertG_(J2G(J), (c), __VA_ARGS__)
 #else
 #define lj_assertJ(c, ...)	((void)J)
+#endif
 #endif
 
 #endif

@@ -1,6 +1,6 @@
 /*
 ** String handling.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_str_c
@@ -244,7 +244,9 @@ static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
 					      const char *str, MSize len)
 {
   global_State *g = G(L);
-  int ow = g->gc.state == GCSsweepstring ? otherwhite(g) : 0;  /* Sweeping? */
+  int sweep =
+      g->gc.state == GCSsweepstring ? g->gc.safecolor : 0; /* Sweeping? */
+  uint8_t mask = isminor(g) ? 0xFF : ~LJ_GC_COLORS;
   GCRef *strtab = g->str.tab;
   MSize strmask = g->str.mask;
   GCobj *o = gcref(strtab[hashc & strmask]);
@@ -255,13 +257,13 @@ static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
     GCobj *next = gcnext(o);
     GCstr *s = gco2str(o);
     StrHash hash;
-    if (ow) {  /* Must sweep while rechaining. */
-      if (((o->gch.marked ^ LJ_GC_WHITES) & ow)) {  /* String alive? */
-	lj_assertG(!isdead(g, o) || (o->gch.marked & LJ_GC_FIXED),
+    if (sweep) { /* Must sweep while rechaining. */
+      if (o->gch.gcflags & sweep) {  /* String alive? */
+	lj_assertG(!checkdead(g, o) || (o->gch.gcflags & LJ_GC_FIXED),
 		   "sweep of undead string");
-	makewhite(g, o);
+        o->gch.gcflags &= mask;
       } else {  /* Free dead string. */
-	lj_assertG(isdead(g, o) || ow == LJ_GC_SFIXED,
+	lj_assertG(checkdead(g, o) || (sweep & LJ_GC_SFIXED),
 		   "sweep of unlive string");
 	lj_str_free(g, s);
 	o = next;
@@ -299,10 +301,10 @@ static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
 static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
 			   StrHash hash, int hashalg)
 {
-  GCstr *s = lj_mem_newt(L, lj_str_size(len), GCstr);
+  GCstr *s = lj_mem_allocstr(L, len);
   global_State *g = G(L);
   uintptr_t u;
-  newwhite(g, s);
+  newwhite(s);
   s->gct = ~LJ_TSTR;
   s->len = len;
   s->hash = hash;
@@ -343,6 +345,9 @@ static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
   setgcrefp(s->nextgc, (u & ~(uintptr_t)1));
   /* NOBARRIER: The string table is a GC root. */
   setgcrefp(g->str.tab[hash], ((uintptr_t)s | (u & 1)));
+#ifdef COUNTS
+  g->strnum++;
+#endif
   if (g->str.num++ > g->str.mask)  /* Allow a 100% load factor. */
     lj_str_resize(L, (g->str.mask<<1)+1);  /* Grow string table. */
   return s;  /* Return newly interned string. */
@@ -370,7 +375,7 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
       GCstr *sx = gco2str(o);
       if (sx->hash == hash && sx->len == len) {
 	if (memcmp(str, strdata(sx), len) == 0) {
-	  if (isdead(g, o)) flipwhite(o);  /* Resurrect if dead. */
+      maybe_resurrect_str(g, sx);
 	  return sx;  /* Return existing string. */
 	}
 	coll++;
@@ -396,6 +401,9 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
 void LJ_FASTCALL lj_str_free(global_State *g, GCstr *s)
 {
   g->str.num--;
+#ifdef COUNTS
+  g->strnum--;
+#endif
   lj_mem_free(g, s, lj_str_size(s->len));
 }
 

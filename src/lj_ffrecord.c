@@ -1,6 +1,6 @@
 /*
 ** Fast function call recorder.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_ffrecord_c
@@ -215,7 +215,7 @@ static void LJ_FASTCALL recff_type(jit_State *J, RecordFFData *rd)
     t = ~LJ_TLIGHTUD;
   else
     t = ~itype(&rd->argv[0]);
-  J->base[0] = lj_ir_kstr(J, strV(&J->fn->c.upvalue[t]));
+  J->base[0] = lj_ir_kstr(J, strV(&J->fn->c.data->upvalue[t]));
   UNUSED(rd);
 }
 
@@ -226,6 +226,7 @@ static void LJ_FASTCALL recff_getmetatable(jit_State *J, RecordFFData *rd)
     RecordIndex ix;
     ix.tab = tr;
     copyTV(J->L, &ix.tabv, &rd->argv[0]);
+    ix.mtspec = 0;
     if (lj_record_mm_lookup(J, &ix, MM_metatable))
       J->base[0] = ix.mobj;
     else
@@ -242,6 +243,7 @@ static void LJ_FASTCALL recff_setmetatable(jit_State *J, RecordFFData *rd)
     RecordIndex ix;
     ix.tab = tr;
     copyTV(J->L, &ix.tabv, &rd->argv[0]);
+    ix.mtspec = 0;
     lj_record_mm_lookup(J, &ix, MM_metatable); /* Guard for no __metatable. */
     fref = emitir(IRT(IR_FREF, IRT_PGC), tr, IRFL_TAB_META);
     mtref = tref_isnil(mt) ? lj_ir_knull(J, IRT_TAB) : mt;
@@ -390,6 +392,7 @@ static int recff_metacall(jit_State *J, RecordFFData *rd, MMS mm)
   RecordIndex ix;
   ix.tab = J->base[0];
   copyTV(J->L, &ix.tabv, &rd->argv[0]);
+  ix.mtspec = 1;
   if (lj_record_mm_lookup(J, &ix, mm)) {  /* Has metamethod? */
     int errcode;
     TValue argv0;
@@ -453,7 +456,7 @@ static void LJ_FASTCALL recff_xpairs(jit_State *J, RecordFFData *rd)
   if (!((LJ_52 || (LJ_HASFFI && tref_iscdata(tr))) &&
 	recff_metacall(J, rd, MM_pairs + rd->data))) {
     if (tref_istab(tr)) {
-      J->base[0] = lj_ir_kfunc(J, funcV(&J->fn->c.upvalue[0]));
+      J->base[0] = lj_ir_kfunc(J, funcV(&J->fn->c.data->upvalue[0]));
       J->base[1] = tr;
       J->base[2] = rd->data ? lj_ir_kint(J, 0) : TREF_NIL;
       rd->nres = 3;
@@ -549,11 +552,50 @@ static void LJ_FASTCALL recff_next(jit_State *J, RecordFFData *rd)
     ix.idxchain = (J->framedepth && frame_islua(J->L->base-1) &&
 		   bc_b(frame_pc(J->L->base-1)[-1])-1 < 2);
     ix.mobj = 0;  /* We don't need the next index. */
+    ix.mtspec = 0;
     rd->nres = lj_record_next(J, &ix);
     J->base[0] = ix.key;
     J->base[1] = ix.val;
   }  /* else: Interpreter will throw. */
 #endif
+}
+
+static void LJ_FASTCALL recff_unpack(jit_State *J, RecordFFData *rd)
+{
+  TRef tab = J->base[0], trstart = J->base[1], trend = J->base[2];
+  if (tref_istab(tab) && trstart && trend && tref_isk2(trstart, trend) &&
+			 !tref_isnil(trend)) {
+    if (!tref_isnil(trstart))
+      trstart = lj_opt_narrow_toint(J, trstart);
+    trend = lj_opt_narrow_toint(J, trend);
+    if (tref_isk2(trstart, trend)) {
+      uint32_t nu;
+      int32_t start = tref_isnil(trstart) ? 1 : IR(tref_ref(trstart))->i;
+      int32_t end = IR(tref_ref(trend))->i;
+      if (start > end) {
+	rd->nres = 0;
+	return;
+      }
+      nu = (uint32_t)end - (uint32_t)start;
+      /* Check for space for the return values. */
+      if (nu <= INT32_MAX - LJ_MAX_JSLOTS && J->baseslot + nu < LJ_MAX_JSLOTS) {
+	int32_t i, n = (int32_t)(nu+1);
+	RecordIndex ix;
+	ix.tab = tab;
+	settabV(J->L, &ix.tabv, tabV(&rd->argv[0]));
+	ix.val = 0;
+	ix.idxchain = 0;
+	for (i = 0; i < n; i++) {
+	  ix.key = lj_ir_kint(J, start + i);
+	  setintV(&ix.keyv, start + i);
+	  J->base[i] = lj_record_idx(J, &ix);
+	}
+	rd->nres = n;
+	return;
+      }
+    }
+  }
+  recff_nyiu(J, rd);
 }
 
 /* -- Math library fast functions ----------------------------------------- */
@@ -639,8 +681,8 @@ static void LJ_FASTCALL recff_math_call(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_pow(jit_State *J, RecordFFData *rd)
 {
-  J->base[0] = lj_opt_narrow_pow(J, J->base[0], J->base[1],
-				 &rd->argv[0], &rd->argv[1]);
+  J->base[0] = lj_opt_narrow_arith(J, J->base[0], J->base[1],
+				   &rd->argv[0], &rd->argv[1], IR_POW);
   UNUSED(rd);
 }
 
@@ -664,7 +706,7 @@ static void LJ_FASTCALL recff_math_minmax(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
 {
-  GCudata *ud = udataV(&J->fn->c.upvalue[0]);
+  GCudata *ud = udataV(&J->fn->c.data->upvalue[0]);
   TRef tr, one;
   lj_ir_kgc(J, obj2gco(ud), IRT_UDATA);  /* Prevent collection. */
   tr = lj_ir_call(J, IRCALL_lj_prng_u64d, lj_ir_kptr(J, uddata(ud)));
@@ -1118,7 +1160,7 @@ static LJ_AINLINE TRef recff_sbufx_len(jit_State *J, TRef trr, TRef trw)
 }
 
 /* Emit typecheck for string buffer. */
-static TRef recff_sbufx_check(jit_State *J, RecordFFData *rd, int arg)
+static TRef recff_sbufx_check(jit_State *J, RecordFFData *rd, ptrdiff_t arg)
 {
   TRef trtype, ud = J->base[arg];
   if (!tvisbuf(&rd->argv[arg])) lj_trace_err(J, LJ_TRERR_BADTYPE);
@@ -1131,12 +1173,12 @@ static TRef recff_sbufx_check(jit_State *J, RecordFFData *rd, int arg)
 /* Emit BUFHDR for write to extended string buffer. */
 static TRef recff_sbufx_write(jit_State *J, TRef ud)
 {
-  TRef trbuf = emitir(IRT(IR_ADD, IRT_PGC), ud, lj_ir_kint(J, sizeof(GCudata)));
+  TRef trbuf = emitir(IRT(IR_ADD, IRT_PGC), ud, lj_ir_kintpgc(J, sizeof(GCudata)));
   return emitir(IRT(IR_BUFHDR, IRT_PGC), trbuf, IRBUFHDR_WRITE);
 }
 
 /* Check for integer in range for the buffer API. */
-static TRef recff_sbufx_checkint(jit_State *J, RecordFFData *rd, int arg)
+static TRef recff_sbufx_checkint(jit_State *J, RecordFFData *rd, ptrdiff_t arg)
 {
   TRef tr = J->base[arg];
   TRef trlim = lj_ir_kint(J, LJ_MAX_BUF);
@@ -1165,20 +1207,19 @@ static void LJ_FASTCALL recff_buffer_method_reset(jit_State *J, RecordFFData *rd
   SBufExt *sbx = bufV(&rd->argv[0]);
   int iscow = (int)sbufiscow(sbx);
   TRef trl = recff_sbufx_get_L(J, ud);
-  TRef trcow = emitir(IRT(IR_BAND, IRT_IGC), trl, lj_ir_kint(J, SBUF_FLAG_COW));
-  TRef zero = lj_ir_kint(J, 0);
-  emitir(IRTG(iscow ? IR_NE : IR_EQ, IRT_IGC), trcow, zero);
+  TRef trcow = emitir(IRT(IR_BAND, IRT_IGC), trl, lj_ir_kintpgc(J, SBUF_FLAG_COW));
+  TRef zeropgc = lj_ir_kintpgc(J, 0);
+  emitir(IRTG(iscow ? IR_NE : IR_EQ, IRT_IGC), trcow, zeropgc);
   if (iscow) {
-    trl = emitir(IRT(IR_BXOR, IRT_IGC), trl,
-		 LJ_GC64 ? lj_ir_kint64(J, SBUF_FLAG_COW) :
-			   lj_ir_kint(J, SBUF_FLAG_COW));
-    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_W, zero);
-    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_E, zero);
-    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_B, zero);
+    TRef zerop = lj_ir_kintp(J, 0);
+    trl = emitir(IRT(IR_BXOR, IRT_IGC), trl, lj_ir_kintpgc(J, SBUF_FLAG_COW));
+    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_W, zerop);
+    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_E, zerop);
+    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_B, zerop);
     recff_sbufx_set_L(J, ud, trl);
     emitir(IRT(IR_FSTORE, IRT_PGC),
-	   emitir(IRT(IR_FREF, IRT_PGC), ud, IRFL_SBUF_REF), zero);
-    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_R, zero);
+	   emitir(IRT(IR_FREF, IRT_PGC), ud, IRFL_SBUF_REF), zeropgc);
+    recff_sbufx_set_ptr(J, ud, IRFL_SBUF_R, zerop);
   } else {
     TRef trb = recff_sbufx_get_ptr(J, ud, IRFL_SBUF_B);
     recff_sbufx_set_ptr(J, ud, IRFL_SBUF_W, trb);
@@ -1206,6 +1247,12 @@ static void LJ_FASTCALL recff_buffer_method_set(jit_State *J, RecordFFData *rd)
   if (tref_isstr(tr)) {
     TRef trp = emitir(IRT(IR_STRREF, IRT_PGC), tr, lj_ir_kint(J, 0));
     TRef len = emitir(IRTI(IR_FLOAD), tr, IRFL_STR_LEN);
+    IRIns *irp = IR(tref_ref(trp));
+    /* trp must point into the anchored obj, even after folding. */
+    if (irp->o == IR_STRREF)
+      tr = irp->op1;
+    else if (!tref_isk(tr))
+      trp = emitir(IRT(IR_ADD, IRT_PGC), tr, lj_ir_kintpgc(J, sizeof(GCstr)));
     lj_ir_call(J, IRCALL_lj_bufx_set, trbuf, trp, len, tr);
 #if LJ_HASFFI
   } else if (tref_iscdata(tr)) {
@@ -1224,6 +1271,12 @@ static void LJ_FASTCALL recff_buffer_method_put(jit_State *J, RecordFFData *rd)
   ptrdiff_t arg;
   if (!J->base[1]) return;
   for (arg = 1; (tr = J->base[arg]); arg++) {
+    if (tref_isudata(tr)) {
+      TRef ud2 = recff_sbufx_check(J, rd, arg);
+      emitir(IRTG(IR_NE, IRT_PGC), ud, ud2);
+    }
+  }
+  for (arg = 1; (tr = J->base[arg]); arg++) {
     if (tref_isstr(tr)) {
       trbuf = emitir(IRTG(IR_BUFPUT, IRT_PGC), trbuf, tr);
     } else if (tref_isnumber(tr)) {
@@ -1231,11 +1284,9 @@ static void LJ_FASTCALL recff_buffer_method_put(jit_State *J, RecordFFData *rd)
 		     emitir(IRT(IR_TOSTR, IRT_STR), tr,
 			    tref_isnum(tr) ? IRTOSTR_NUM : IRTOSTR_INT));
     } else if (tref_isudata(tr)) {
-      TRef ud2 = recff_sbufx_check(J, rd, arg);
-      TRef trr = recff_sbufx_get_ptr(J, ud2, IRFL_SBUF_R);
-      TRef trw = recff_sbufx_get_ptr(J, ud2, IRFL_SBUF_W);
+      TRef trr = recff_sbufx_get_ptr(J, tr, IRFL_SBUF_R);
+      TRef trw = recff_sbufx_get_ptr(J, tr, IRFL_SBUF_W);
       TRef len = recff_sbufx_len(J, trr, trw);
-      emitir(IRTG(IR_NE, IRT_PGC), ud, ud2);
       trbuf = lj_ir_call(J, IRCALL_lj_buf_putmem, trbuf, trr, len);
     } else {
       recff_nyiu(J, rd);
@@ -1260,14 +1311,18 @@ static void LJ_FASTCALL recff_buffer_method_get(jit_State *J, RecordFFData *rd)
   ptrdiff_t arg;
   if (!J->base[1]) { J->base[1] = TREF_NIL; J->base[2] = 0; }
   for (arg = 0; (tr = J->base[arg+1]); arg++) {
+    if (!tref_isnil(tr)) {
+      J->base[arg+1] = recff_sbufx_checkint(J, rd, arg+1);
+    }
+  }
+  for (arg = 0; (tr = J->base[arg+1]); arg++) {
     TRef len = recff_sbufx_len(J, trr, trw);
     if (tref_isnil(tr)) {
       J->base[arg] = emitir(IRT(IR_XSNEW, IRT_STR), trr, len);
       trr = trw;
     } else {
-      TRef trn = recff_sbufx_checkint(J, rd, arg+1);
       TRef tru;
-      len = emitir(IRTI(IR_MIN), len, trn);
+      len = emitir(IRTI(IR_MIN), len, tr);
       tru = emitir(IRT(IR_ADD, IRT_PTR), trr, len);
       J->base[arg] = emitir(IRT(IR_XSNEW, IRT_STR), trr, len);
       trr = tru;  /* Doing the ADD before the SNEW generates better code. */
@@ -1438,6 +1493,15 @@ static void LJ_FASTCALL recff_table_new(jit_State *J, RecordFFData *rd)
 {
   TRef tra = lj_opt_narrow_toint(J, J->base[0]);
   TRef trh = lj_opt_narrow_toint(J, J->base[1]);
+  if (tref_isk(tra) && tref_isk(trh)) {
+    int32_t a = IR(tref_ref(tra))->i;
+    if (a < 0x7fff) {
+      uint32_t hbits = hsize2hbits(IR(tref_ref(trh))->i);
+      a = a > 0 ? a+1 : 0;
+      J->base[0] = emitir(IRTG(IR_TNEW, IRT_TAB), (uint32_t)a, hbits);
+      return;
+    }
+  }
   J->base[0] = lj_ir_call(J, IRCALL_lj_tab_new_ah, tra, trh);
   UNUSED(rd);
 }

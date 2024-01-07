@@ -1,6 +1,6 @@
 /*
 ** Library function support.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_LIB_H
@@ -56,7 +56,7 @@ LJ_FUNC int32_t lj_lib_checkintrange(lua_State *L, int narg,
 /* Avoid including lj_frame.h. */
 #if LJ_GC64
 #define lj_lib_upvalue(L, n) \
-  (&gcval(L->base-2)->fn.c.upvalue[(n)-1])
+  (&gcval(L->base-2)->fn.c.data->upvalue[(n)-1])
 #elif LJ_FR2
 #define lj_lib_upvalue(L, n) \
   (&gcref((L->base-2)->gcr)->fn.c.upvalue[(n)-1])

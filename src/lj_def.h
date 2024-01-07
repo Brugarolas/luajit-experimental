@@ -1,6 +1,6 @@
 /*
 ** LuaJIT common internal definitions.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_DEF_H
@@ -59,7 +59,8 @@ typedef unsigned int uintptr_t;
 #define LJ_MAX_HBITS	26		/* Max. hash bits. */
 #define LJ_MAX_ABITS	28		/* Max. bits of array key. */
 #define LJ_MAX_ASIZE	((1<<(LJ_MAX_ABITS-1))+1)  /* Max. array part size. */
-#define LJ_MAX_COLOSIZE	16		/* Max. elems for colocated array. */
+#define LJ_MAX_COLOSIZE	0		/* Max. elems for colocated array. */
+#define LJ_COLO_ENABLED 1
 
 #define LJ_MAX_LINE	LJ_MAX_MEM32	/* Max. source code line number. */
 #define LJ_MAX_XLEVEL	200		/* Max. syntactic nesting level. */
@@ -69,7 +70,7 @@ typedef unsigned int uintptr_t;
 #define LJ_MAX_UPVAL	120		/* Max. # of upvalues. */
 
 #define LJ_MAX_IDXCHAIN	100		/* __index/__newindex chain limit. */
-#define LJ_STACK_EXTRA	(5+2*LJ_FR2)	/* Extra stack space (metamethods). */
+#define LJ_STACK_EXTRA	(5+3*LJ_FR2)	/* Extra stack space (metamethods). */
 
 #if defined(__powerpc64__) && _CALL_ELF != 2
 #define LJ_NUM_CBPAGE	4		/* Number of FFI callback pages. */
@@ -154,15 +155,9 @@ typedef uintptr_t BloomFilter;
 #define LJ_UNLIKELY(x)	__builtin_expect(!!(x), 0)
 
 #define lj_ffs(x)	((uint32_t)__builtin_ctz(x))
-/* Don't ask ... */
-#if defined(__INTEL_COMPILER) && (defined(__i386__) || defined(__x86_64__))
-static LJ_AINLINE uint32_t lj_fls(uint32_t x)
-{
-  uint32_t r; __asm__("bsrl %1, %0" : "=r" (r) : "rm" (x) : "cc"); return r;
-}
-#else
 #define lj_fls(x)	((uint32_t)(__builtin_clz(x)^31))
-#endif
+#define lj_ffs64(x)	((uint32_t)__builtin_ctzll(x))
+#define lj_fls64(x)	((uint32_t)(__builtin_clzll(x)^63))
 
 #if defined(__arm__)
 static LJ_AINLINE uint32_t lj_bswap(uint32_t x)
@@ -285,6 +280,23 @@ static LJ_AINLINE uint32_t lj_fls(uint32_t x)
 {
   unsigned long r; _BitScanReverse(&r, x); return (uint32_t)r;
 }
+
+#if defined(_M_X64) || defined(_M_ARM64)
+unsigned char _BitScanForward64(unsigned long *, uint64_t);
+unsigned char _BitScanReverse64(unsigned long *, uint64_t);
+#pragma intrinsic(_BitScanForward64)
+#pragma intrinsic(_BitScanReverse64)
+
+static LJ_AINLINE uint32_t lj_ffs64(uint64_t x)
+{
+  unsigned long r; _BitScanForward64(&r, x); return (uint32_t)r;
+}
+
+static LJ_AINLINE uint32_t lj_fls64(uint64_t x)
+{
+  unsigned long r; _BitScanReverse64(&r, x); return (uint32_t)r;
+}
+#endif
 #endif
 
 unsigned long _byteswap_ulong(unsigned long);

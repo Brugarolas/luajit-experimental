@@ -1,6 +1,6 @@
 /*
 ** State and stack handling.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -28,6 +28,7 @@
 #include "lj_prng.h"
 #include "lj_lex.h"
 #include "lj_alloc.h"
+#include "lj_arena.h"
 #include "luajit.h"
 
 /* -- Stack handling ------------------------------------------------------ */
@@ -76,7 +77,7 @@ static void resizestack(lua_State *L, MSize n)
     setmref(G(L)->jit_base, mref(G(L)->jit_base, char) + delta);
   L->base = (TValue *)((char *)L->base + delta);
   L->top = (TValue *)((char *)L->top + delta);
-  for (up = gcref(L->openupval); up != NULL; up = gcnext(up))
+  for (up = gcref(L->openupval); up != NULL; up = gcref(up->uv.next))
     setmref(gco2uv(up)->v, (TValue *)((char *)uvval(gco2uv(up)) + delta));
 }
 
@@ -103,8 +104,17 @@ void lj_state_shrinkstack(lua_State *L, MSize used)
 void LJ_FASTCALL lj_state_growstack(lua_State *L, MSize need)
 {
   MSize n;
-  if (L->stacksize > LJ_STACK_MAXEX)  /* Overflow while handling overflow? */
-    lj_err_throw(L, LUA_ERRERR);
+  if (L->stacksize >= LJ_STACK_MAXEX) {
+    /* 4. Throw 'error in error handling' when we are _over_ the limit. */
+    if (L->stacksize > LJ_STACK_MAXEX)
+      lj_err_throw(L, LUA_ERRERR);  /* Does not invoke an error handler. */
+    /* 1. We are _at_ the limit after the last growth. */
+    if (L->status < LUA_ERRRUN) {  /* 2. Throw 'stack overflow'. */
+      L->status = LUA_ERRRUN;  /* Prevent ending here again for pushed msg. */
+      lj_err_msg(L, LJ_ERR_STKOV);  /* May invoke an error handler. */
+    }
+    /* 3. Add space (over the limit) for pushed message and error handler. */
+  }
   n = L->stacksize + need;
   if (n > LJ_STACK_MAX) {
     n += 2*LUA_MINSTACK;
@@ -114,13 +124,23 @@ void LJ_FASTCALL lj_state_growstack(lua_State *L, MSize need)
       n = LJ_STACK_MAX;
   }
   resizestack(L, n);
-  if (L->stacksize > LJ_STACK_MAXEX)
-    lj_err_msg(L, LJ_ERR_STKOV);
 }
 
 void LJ_FASTCALL lj_state_growstack1(lua_State *L)
 {
   lj_state_growstack(L, 1);
+}
+
+static TValue *cpgrowstack(lua_State *co, lua_CFunction dummy, void *ud)
+{
+  UNUSED(dummy);
+  lj_state_growstack(co, *(MSize *)ud);
+  return NULL;
+}
+
+int LJ_FASTCALL lj_state_cpgrowstack(lua_State *L, MSize need)
+{
+  return lj_vm_cpcall(L, NULL, &need, cpgrowstack);
 }
 
 /* Allocate basic stack for new state. */
@@ -181,6 +201,11 @@ static void close_state(lua_State *L)
     lj_mem_freevec(g, mref(g->gc.lightudseg, uint32_t), segnum, uint32_t);
   }
 #endif
+  lj_arena_cleanup(g);
+  lj_assertG(g->gc.ctx.mem_commit == 0, "memory leak of %u arenas",
+             g->gc.ctx.mem_commit);
+  lj_assertG(g->gc.ctx.mem_huge == 0, "memory leak of %llu huge arena bytes",
+             g->gc.ctx.mem_huge);
   lj_assertG(g->gc.total == sizeof(GG_State),
 	     "memory leak of %lld bytes",
 	     (long long)(g->gc.total - sizeof(GG_State)));
@@ -196,7 +221,16 @@ static void close_state(lua_State *L)
 lua_State *lj_state_newstate(lua_Alloc allocf, void *allocd)
 #else
 LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
+{
+  return lj_newstate(allocf, allocd, NULL, NULL, NULL, NULL);
+}
 #endif
+
+lua_State *lj_newstate(lua_Alloc allocf, void *allocd,
+                       luaJIT_allocpages allocp,
+                       luaJIT_freepages freep,
+                       luaJIT_reallochuge realloch,
+                       void *page_ud)
 {
   PRNGState prng;
   GG_State *GG;
@@ -220,15 +254,22 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   memset(GG, 0, sizeof(GG_State));
   L = &GG->L;
   g = &GG->g;
-  L->gct = ~LJ_TTHREAD;
-  L->marked = LJ_GC_WHITE0 | LJ_GC_FIXED | LJ_GC_SFIXED;  /* Prevent free. */
-  L->dummy_ffid = FF_C;
-  setmref(L->glref, g);
-  g->gc.currentwhite = LJ_GC_WHITE0 | LJ_GC_FIXED;
-  g->strempty.marked = LJ_GC_WHITE0;
-  g->strempty.gct = ~LJ_TSTR;
   g->allocf = allocf;
   g->allocd = allocd;
+  g->gc.currentsweep = LJ_GC_SWEEP0;
+  if (!lj_arena_init(g, allocp, freep, realloch, page_ud)) {
+    close_state(L);
+    return NULL;
+  }
+  L->gct = ~LJ_TTHREAD;
+  L->gcflags = LJ_GC_FIXED | LJ_GC_SFIXED;  /* Prevent free. */
+  L->dummy_ffid = FF_C;
+  setmref(L->glref, g);
+  g->gc.currentblack = LJ_GC_BLACK0;
+  g->gc.currentblackgray = LJ_GC_BLACK0 | LJ_GC_GRAY;
+  g->gc.safecolor = 0;
+  g->strempty.gcflags = 0;
+  g->strempty.gct = ~LJ_TSTR;
   g->prng = prng;
 #ifndef LUAJIT_USE_SYSMALLOC
   if (allocf == lj_alloc_f) {
@@ -236,8 +277,6 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   }
 #endif
   setgcref(g->mainthref, obj2gco(L));
-  setgcref(g->uvhead.prev, obj2gco(&g->uvhead));
-  setgcref(g->uvhead.next, obj2gco(&g->uvhead));
   g->str.mask = ~(MSize)0;
   setnilV(registry(L));
   setnilV(&g->nilnode.val);
@@ -250,9 +289,10 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   setgcref(g->gc.root, obj2gco(L));
   setmref(g->gc.sweep, &g->gc.root);
   g->gc.total = sizeof(GG_State);
+  g->gc.malloc = g->gc.total;
   g->gc.pause = LUAI_GCPAUSE;
   g->gc.stepmul = LUAI_GCMUL;
-  lj_dispatch_init((GG_State *)L);
+  lj_dispatch_init(GG);
   L->status = LUA_ERRERR+1;  /* Avoid touching the stack upon memory error. */
   if (lj_vm_cpcall(L, NULL, NULL, cpluaopen) != 0) {
     /* Memory allocation error: free partial state. */
@@ -320,9 +360,7 @@ lua_State *lj_state_new(lua_State *L)
   setmrefr(L1->glref, L->glref);
   setgcrefr(L1->env, L->env);
   stack_init(L1, L);  /* init stack */
-  lj_assertL(iswhite(obj2gco(L1)), "new thread object is not white");
-  L1->exdata = L->exdata;
-  L1->exdata2 = L->exdata2;
+  lj_assertL(iswhite(G(L), obj2gco(L1)), "new thread object is not white");
   return L1;
 }
 
@@ -331,9 +369,15 @@ void LJ_FASTCALL lj_state_free(global_State *g, lua_State *L)
   lj_assertG(L != mainthread(g), "free of main thread");
   if (obj2gco(L) == gcref(g->cur_L))
     setgcrefnull(g->cur_L);
-  lj_func_closeuv(L, tvref(L->stack));
-  lj_assertG(gcref(L->openupval) == NULL, "stale open upvalues");
+  if (gcref(L->openupval) != NULL) {
+    lj_func_closeuv(L, tvref(L->stack));
+    lj_trace_abort(g);  /* For aa_uref soundness. */
+    lj_assertG(gcref(L->openupval) == NULL, "stale open upvalues");
+  }
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
   lj_mem_freet(g, L);
+#ifdef COUNTS
+  g->gc.thnum--;
+#endif
 }
 

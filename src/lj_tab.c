@@ -1,6 +1,6 @@
 /*
 ** Table handling.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -44,7 +44,7 @@ static LJ_AINLINE void newhpart(lua_State *L, GCtab *t, uint32_t hbits)
   if (hbits > LJ_MAX_HBITS)
     lj_err_msg(L, LJ_ERR_TABOV);
   hsize = 1u << hbits;
-  node = lj_mem_newvec(L, hsize, Node);
+  node = lj_mem_newv(L, hsize, Node);
   setmref(t->node, node);
   setfreetop(t, node, &node[hsize]);
   t->hmask = hsize-1;
@@ -82,50 +82,42 @@ static LJ_AINLINE void clearapart(GCtab *t)
 /* Create a new table. Note: the slots are not initialized (yet). */
 static GCtab *newtab(lua_State *L, uint32_t asize, uint32_t hbits)
 {
-  GCtab *t;
-  /* First try to colocate the array part. */
-  if (LJ_MAX_COLOSIZE != 0 && asize > 0 && asize <= LJ_MAX_COLOSIZE) {
-    Node *nilnode;
-    lj_assertL((sizeof(GCtab) & 7) == 0, "bad GCtab size");
-    t = (GCtab *)lj_mem_newgco(L, sizetabcolo(asize));
-    t->gct = ~LJ_TTAB;
-    t->nomm = (uint8_t)~0;
-    t->colo = (int8_t)asize;
-    setmref(t->array, (TValue *)((char *)t + sizeof(GCtab)));
-    setgcrefnull(t->metatable);
-    t->asize = asize;
-    t->hmask = 0;
-    nilnode = &G(L)->nilnode;
-    setmref(t->node, nilnode);
+  GCtab *t = lj_mem_alloctab(L, asize);
+  Node *nilnode = &G(L)->nilnode;
+  setmref(t->node, nilnode);
 #if LJ_GC64
-    setmref(t->freetop, nilnode);
+  setmref(t->freetop, nilnode);
 #endif
-  } else {  /* Otherwise separately allocate the array part. */
-    Node *nilnode;
-    t = lj_mem_newobj(L, GCtab);
-    t->gct = ~LJ_TTAB;
-    t->nomm = (uint8_t)~0;
-    t->colo = 0;
-    setmref(t->array, NULL);
-    setgcrefnull(t->metatable);
-    t->asize = 0;  /* In case the array allocation fails. */
-    t->hmask = 0;
-    nilnode = &G(L)->nilnode;
-    setmref(t->node, nilnode);
-#if LJ_GC64
-    setmref(t->freetop, nilnode);
-#endif
-    if (asize > 0) {
-      if (asize > LJ_MAX_ASIZE)
-	lj_err_msg(L, LJ_ERR_TABOV);
-      setmref(t->array, lj_mem_newvec(L, asize, TValue));
-      t->asize = asize;
-    }
-  }
+
   if (hbits)
     newhpart(L, t, hbits);
   return t;
 }
+
+GCtab *lj_tab_newgc(lua_State *L, uint32_t asize, uint32_t hbits)
+{
+  Node *nilnode;
+  GCtab *t = lj_mem_alloctabempty_gc(L);
+  t->hmask = 0;
+  nilnode = &G(L)->nilnode;
+  setmref(t->node, nilnode);
+#if LJ_GC64
+  setmref(t->freetop, nilnode);
+#endif
+  if (asize > 0) {
+    if (asize > LJ_MAX_ASIZE)
+      lj_err_msg(L, LJ_ERR_TABOV);
+    setmref(t->array, lj_mem_newv(L, asize, TValue));
+    t->asize = asize;
+  }
+  if (hbits)
+    newhpart(L, t, hbits);
+#ifdef COUNTS
+  G(L)->gc.tabnum++;
+#endif
+  return t;
+}
+
 
 /* Create a new table.
 **
@@ -224,6 +216,9 @@ void LJ_FASTCALL lj_tab_free(global_State *g, GCtab *t)
     lj_mem_free(g, t, sizetabcolo((uint32_t)t->colo & 0x7f));
   else
     lj_mem_freet(g, t);
+#ifdef COUNTS
+  g->gc.tabnum--;
+#endif
 }
 
 /* -- Table resizing ------------------------------------------------------ */
@@ -239,26 +234,34 @@ void lj_tab_resize(lua_State *L, GCtab *t, uint32_t asize, uint32_t hbits)
     uint32_t i;
     if (asize > LJ_MAX_ASIZE)
       lj_err_msg(L, LJ_ERR_TABOV);
-    if (LJ_MAX_COLOSIZE != 0 && t->colo > 0) {
+    if (LJ_COLO_ENABLED && t->colo > 0) {
       /* A colocated array must be separated and copied. */
       TValue *oarray = tvref(t->array);
-      array = lj_mem_newvec(L, asize, TValue);
-      t->colo = (int8_t)(t->colo | 0x80);  /* Mark as separated (colo < 0). */
+      array = lj_mem_newv(L, asize, TValue);
+      t->colo = 0;  /* Mark as separated (colo == 0). */
+      t->gcflags &= (uint8_t)~LJ_GC_MARK_MASK; /* Release the slots. */
       for (i = 0; i < oldasize; i++)
 	copyTV(L, &array[i], &oarray[i]);
     } else {
-      array = (TValue *)lj_mem_realloc(L, tvref(t->array),
-			  oldasize*sizeof(TValue), asize*sizeof(TValue));
+      array = lj_mem_reallocv(L, tvref(t->array), oldasize, asize, TValue);
     }
     setmref(t->array, array);
     t->asize = asize;
     for (i = oldasize; i < asize; i++)  /* Clear newly allocated slots. */
       setnilV(&array[i]);
+    if (isblack(G(L), obj2gco(t))) {
+      /* If this is black then the array has been marked,
+       * so the new array needs marking too */
+      lj_gc_markblob(L, mref(t->array, void), asize * sizeof(TValue));
+    }
   }
   /* Create new (empty) hash part. */
   if (hbits) {
     newhpart(L, t, hbits);
     clearhpart(t);
+    if (isblack(G(L), obj2gco(t))) {
+      lj_gc_markblob(L, mref(t->node, void), (t->hmask+1) * sizeof(Node));
+    }
   } else {
     global_State *g = G(L);
     setmref(t->node, &g->nilnode);
@@ -275,20 +278,21 @@ void lj_tab_resize(lua_State *L, GCtab *t, uint32_t asize, uint32_t hbits)
       if (!tvisnil(&array[i]))
 	copyTV(L, lj_tab_setinth(L, t, (int32_t)i), &array[i]);
     /* Physically shrink only separated arrays. */
-    if (LJ_MAX_COLOSIZE != 0 && t->colo <= 0)
-      setmref(t->array, lj_mem_realloc(L, array,
-	      oldasize*sizeof(TValue), asize*sizeof(TValue)));
+    if (!LJ_COLO_ENABLED || t->colo == 0) {
+      setmref(t->array,
+              lj_mem_reallocv(L, tvref(t->array), oldasize, asize, TValue));
+      if (isblack(G(L), obj2gco(t))) {
+        lj_gc_markblob(L, mref(t->array, void), asize * sizeof(TValue));
+      }
+    }
   }
   if (oldhmask > 0) {  /* Reinsert pairs from old hash part. */
-    global_State *g;
     uint32_t i;
     for (i = 0; i <= oldhmask; i++) {
       Node *n = &oldnode[i];
       if (!tvisnil(&n->val))
 	copyTV(L, lj_tab_set(L, t, &n->key), &n->val);
     }
-    g = G(L);
-    lj_mem_freevec(g, oldnode, oldhmask+1, Node);
   }
 }
 

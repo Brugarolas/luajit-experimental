@@ -1,6 +1,6 @@
 /*
 ** Public Lua/C API.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -56,7 +56,7 @@ static TValue *index2adr(lua_State *L, int idx)
       return o;
     } else {
       idx = LUA_GLOBALSINDEX - idx;
-      return idx <= fn->c.nupvalues ? &fn->c.upvalue[idx-1] : niltv(L);
+      return idx <= fn->c.nupvalues ? &fn->c.data->upvalue[idx - 1] : niltv(L);
     }
   }
 }
@@ -104,7 +104,12 @@ LUA_API int lua_checkstack(lua_State *L, int size)
   if (size > LUAI_MAXCSTACK || (L->top - L->base + size) > LUAI_MAXCSTACK) {
     return 0;  /* Stack overflow. */
   } else if (size > 0) {
-    lj_state_checkstack(L, (MSize)size);
+    int avail = (int)(mref(L->maxstack, TValue) - L->top);
+    if (size > avail &&
+	lj_state_cpgrowstack(L, (MSize)(size - avail)) != LUA_OK) {
+      L->top--;
+      return 0;  /* Out of memory. */
+    }
   }
   return 1;
 }
@@ -597,7 +602,7 @@ LUA_API lua_CFunction lua_tocfunction(lua_State *L, int idx)
   if (tvisfunc(o)) {
     BCOp op = bc_op(*mref(funcV(o)->c.pc, BCIns));
     if (op == BC_FUNCC || op == BC_FUNCCW)
-      return funcV(o)->c.f;
+      return funcV(o)->c.data->f;
   }
   return NULL;
 }
@@ -692,12 +697,12 @@ LUA_API void lua_pushcclosure(lua_State *L, lua_CFunction f, int n)
   lj_gc_check(L);
   lj_checkapi_slot(n);
   fn = lj_func_newC(L, (MSize)n, getcurrenv(L));
-  fn->c.f = f;
+  fn->c.data->f = f;
   L->top -= n;
   while (n--)
-    copyTV(L, &fn->c.upvalue[n], L->top+n);
+    copyTV(L, &fn->c.data->upvalue[n], L->top + n);
   setfuncV(L, L->top, fn);
-  lj_assertL(iswhite(obj2gco(fn)), "new GC object is not white");
+  lj_assertL(iswhite(G(L), obj2gco(fn)), "new GC object is not white");
   incr_top(L);
 }
 
@@ -720,6 +725,15 @@ LUA_API void lua_createtable(lua_State *L, int narray, int nrec)
 {
   lj_gc_check(L);
   settabV(L, L->top, lj_tab_new_ah(L, narray, nrec));
+  incr_top(L);
+}
+
+LUA_API void luaJIT_createtable(lua_State *L, int narray, int nrec)
+{
+  lj_gc_check(L);
+  settabV(L, L->top,
+          lj_tab_newgc(L, (uint32_t)(narray > 0 ? narray + 1 : 0),
+                       hsize2hbits(nrec)));
   incr_top(L);
 }
 
@@ -779,7 +793,7 @@ LUA_API void lua_concat(lua_State *L, int n)
 	L->top -= n;
 	break;
       }
-      n -= (int)(L->top - top);
+      n -= (int)(L->top - (top - 2*LJ_FR2));
       L->top = top+2;
       lj_vm_call(L, top, 1+1);
       L->top -= 1+LJ_FR2;
@@ -922,7 +936,7 @@ LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
   n--;
   lj_checkapi((uint32_t)n < fn->l.nupvalues, "bad upvalue %d", n);
   return isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
-			 (void *)&fn->c.upvalue[n];
+			 (void *)&fn->c.data->upvalue[n];
 }
 
 LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
@@ -1041,8 +1055,11 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
       lj_gc_objbarriert(L, tabV(o), mt);
   } else if (tvisudata(o)) {
     setgcref(udataV(o)->metatable, obj2gco(mt));
-    if (mt)
+    if (mt) {
+      if (lj_meta_fastg(g, mt, MM_gc))
+        lj_mem_registergc_udata(L, udataV(o));
       lj_gc_objbarrier(L, udataV(o), mt);
+    }
   } else {
     /* Flush cache, since traces specialize to basemt. But not during __gc. */
     if (lj_trace_flushall(L))
@@ -1151,7 +1168,7 @@ static TValue *cpcall(lua_State *L, lua_CFunction func, void *ud)
 {
   GCfunc *fn = lj_func_newC(L, 0, getcurrenv(L));
   TValue *top = L->top;
-  fn->c.f = func;
+  fn->c.data->f = func;
   setfuncV(L, top++, fn);
   if (LJ_FR2) setnilV(top++);
 #if LJ_64
@@ -1292,7 +1309,7 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     g->gc.threshold = data == -1 ? (g->gc.total/100)*g->gc.pause : g->gc.total;
     break;
   case LUA_GCCOLLECT:
-    lj_gc_fullgc(L);
+    lj_gc_fullgc(L, data);
     break;
   case LUA_GCCOUNT:
     res = (int)(g->gc.total >> 10);
@@ -1359,4 +1376,9 @@ LUA_API void lua_setexdata2(lua_State *L, void *exdata2)
 LUA_API void *lua_getexdata2(lua_State *L)
 {
   return L->exdata2;
+}
+
+LUA_API size_t luaJIT_getpagesize()
+{
+  return ARENA_SIZE;
 }

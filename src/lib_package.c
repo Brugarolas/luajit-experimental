@@ -1,6 +1,6 @@
 /*
 ** Package library.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2012 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -16,6 +16,15 @@
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_lib.h"
+
+#if LJ_TARGET_LINUX
+#include <unistd.h>
+#endif
+
+#if LJ_TARGET_OSX
+#include <stdlib.h>
+#include <mach-o/dyld.h>
+#endif
 
 /* ------------------------------------------------------------------------ */
 
@@ -57,13 +66,69 @@ static lua_CFunction ll_sym(lua_State *L, void *lib, const char *sym)
 
 static const char *ll_bcsym(void *lib, const char *sym)
 {
-#if defined(RTLD_DEFAULT)
+#if defined(RTLD_DEFAULT) && !defined(NO_RTLD_DEFAULT)
   if (lib == NULL) lib = RTLD_DEFAULT;
 #elif LJ_TARGET_OSX || LJ_TARGET_BSD
   if (lib == NULL) lib = (void *)(intptr_t)-2;
 #endif
   return (const char *)dlsym(lib, sym);
 }
+
+#if LJ_TARGET_LINUX
+
+#undef setprogdir
+
+/* stack on entry: -2: package table, -1: (c)path string */
+static void setprogdir(lua_State *L)
+{
+  char path[PATH_MAX+2];
+  char *ls;
+  int n = readlink("/proc/self/exe", path, PATH_MAX+1);
+  if (n > 0 && n <= PATH_MAX) {
+    path[n] = '\0'; /* readlink doesn't null-terminate */
+    lua_pushstring(L, path);
+    lua_setfield(L, -3, "exepath");
+    if ((ls = strrchr(path, '/'))) {  /* find position of last slash */
+      *ls = '\0';
+      lua_pushstring(L, path);
+      lua_setfield(L, -3, "exedir");
+      luaL_gsub(L, lua_tostring(L, -1), LUA_EXECDIR, path);
+      lua_remove(L, -2);  /* remove original string */
+      return;
+    }
+  }
+  luaL_error(L, "unable to get the path of the executable");
+}
+
+#elif LJ_TARGET_OSX
+
+#undef setprogdir
+
+/* stack on entry: -2: package table, -1: (c)path string */
+static void setprogdir(lua_State *L)
+{
+  char path1[PATH_MAX+1];
+  char path2[PATH_MAX+1];
+  char *ls;
+  uint32_t n = PATH_MAX;
+  if (_NSGetExecutablePath(path1, &n) == 0) {
+    if (realpath(path1, path2)) { /* resolve symlinks and `..` */
+      lua_pushstring(L, path2);
+      lua_setfield(L, -3, "exepath");
+      if ((ls = strrchr(path2, '/'))) {  /* find position of last slash */
+        *ls = '\0';
+        lua_pushstring(L, path2);
+        lua_setfield(L, -3, "exedir");
+        luaL_gsub(L, lua_tostring(L, -1), LUA_EXECDIR, path2);
+        lua_remove(L, -2);  /* remove original string */
+        return;
+      }
+    }
+  }
+  luaL_error(L, "unable to get the path of the executable");
+}
+
+#endif
 
 #elif LJ_TARGET_WINDOWS
 
@@ -92,18 +157,25 @@ void *LJ_WIN_LOADLIBA(const char *path)
 
 #undef setprogdir
 
+/* stack on entry: -2: package table, -1: (c)path string */
 static void setprogdir(lua_State *L)
 {
   char buff[MAX_PATH + 1];
   char *lb;
   DWORD nsize = sizeof(buff);
   DWORD n = GetModuleFileNameA(NULL, buff, nsize);
-  if (n == 0 || n == nsize || (lb = strrchr(buff, '\\')) == NULL) {
-    luaL_error(L, "unable to get ModuleFileName");
-  } else {
-    *lb = '\0';
-    luaL_gsub(L, lua_tostring(L, -1), LUA_EXECDIR, buff);
-    lua_remove(L, -2);  /* remove original string */
+  if (n && n < nsize) {
+    lua_pushstring(L, buff);
+    lua_setfield(L, -3, "exepath");
+    if ((lb = strrchr(buff, '\\'))) {
+      *lb = '\0';
+      lua_pushstring(L, buff);
+      lua_setfield(L, -3, "exedir");
+      luaL_gsub(L, lua_tostring(L, -1), LUA_EXECDIR, buff);
+      lua_remove(L, -2);  /* remove original string */
+    } else {
+      luaL_error(L, "unable to get ModuleFileName");
+    }
   }
 }
 
@@ -617,6 +689,15 @@ LUALIB_API int luaopen_package(lua_State *L)
   lua_pushliteral(L, LUA_PATH_CONFIG);
   lua_setfield(L, -2, "config");
   luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 16);
+  /* -2: package; -1: _LOADED */
+  lua_getfield(L, -2, "exedir");
+  /* -3: package; -2: _LOADED; -1: exedir */
+  lua_setfield(L, -2, "package.exedir"); /* _LOADED['package.exedir'] = exedir */
+  /* -2: package; -1: _LOADED */
+  lua_getfield(L, -2, "exepath");
+  /* -3: package; -2: _LOADED; -1: exepath */
+  lua_setfield(L, -2, "package.exepath"); /* _LOADED['package.exepath'] = exepath */
+  /* -2: package; -1: _LOADED */
   lua_setfield(L, -2, "loaded");
   luaL_findtable(L, LUA_REGISTRYINDEX, "_PRELOAD", 4);
   lua_setfield(L, -2, "preload");

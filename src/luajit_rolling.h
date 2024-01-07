@@ -1,7 +1,7 @@
 /*
 ** LuaJIT -- a Just-In-Time Compiler for Lua. https://luajit.org/
 **
-** Copyright (C) 2005-2021 Mike Pall. All rights reserved.
+** Copyright (C) 2005-2023 Mike Pall. All rights reserved.
 **
 ** Permission is hereby granted, free of charge, to any person obtaining
 ** a copy of this software and associated documentation files (the
@@ -30,12 +30,12 @@
 
 #include "lua.h"
 
-#define OPENRESTY_LUAJIT
-
-#define LUAJIT_VERSION		"LuaJIT 2.1.0-beta3"
-#define LUAJIT_VERSION_NUM	20100  /* Version 2.1.0 = 02.01.00. */
-#define LUAJIT_VERSION_SYM	luaJIT_version_2_1_0_beta3
-#define LUAJIT_COPYRIGHT	"Copyright (C) 2005-2021 Mike Pall"
+/* Version number. */
+#define OPENRESTY_LUAJIT 1
+#define LUAJIT_VERSION		"LuaJIT 2.1.ROLLING"
+#define LUAJIT_VERSION_NUM	20199  /* Deprecated. */
+#define LUAJIT_VERSION_SYM	luaJIT_version_2_1_ROLLING
+#define LUAJIT_COPYRIGHT	"Copyright (C) 2005-2023 Mike Pall"
 #define LUAJIT_URL		"https://luajit.org/"
 
 /* Modes for luaJIT_setmode. */
@@ -74,6 +74,38 @@ LUA_API void luaJIT_profile_start(lua_State *L, const char *mode,
 LUA_API void luaJIT_profile_stop(lua_State *L);
 LUA_API const char *luaJIT_profile_dumpstack(lua_State *L, const char *fmt,
 					     int depth, size_t *len);
+
+typedef unsigned (*luaJIT_allocpages)(void *ud, void **pages, unsigned n);
+/* Free is called one last time with NULL, 0 to indicate any state should be released */
+typedef void (*luaJIT_freepages)(void *ud, void **pages, unsigned n);
+typedef void* (*luaJIT_reallochuge)(void *ud, void *p, size_t osz, size_t nsz);
+
+/* This many bytes are reserved at the start of each huge arena for the allocator's use */
+#define LUAJIT_HUGE_RESERVED_SPACE 20
+
+LUA_API size_t luaJIT_getpagesize();
+
+/* Custom allocator support.
+ * Page allocators must yield naturally aligned regions in the size provided by
+ * luaJIT_getpagesize. Page allocators allocate and free N pages at once. Huge
+ * allocations are one at a time.
+ * The lua_Alloc allocator is used for allocations that require variable size
+ * and a fixed address.
+ * Allocators are permitted to fail. The huge page allocator can return NULL and
+ * the page allocator can return fewer than the requested amount. Allocators are not
+ * permitted to throw.
+ * Huge allocations have the same alignment requirements as normal arenas.
+ * Either the normal or page allocation can be NULL and the default will be used.
+ * Passing all NULL is functionally the same as luaL_newstate()
+ */
+LUA_API lua_State *luaJIT_newstate(lua_Alloc f, void *ud,
+                                   luaJIT_allocpages allocp,
+                                   luaJIT_freepages freep,
+                                   luaJIT_reallochuge realloch,
+                                   void *page_ud);
+
+/* As lua_createtable, but can be used with __gc */
+LUA_API void luaJIT_createtable(lua_State *L, int narray, int nrec);
 
 /* Enforce (dynamic) linker error for version mismatches. Call from main. */
 LUA_API void LUAJIT_VERSION_SYM(void);
