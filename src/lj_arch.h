@@ -214,10 +214,7 @@
 #define LJ_TARGET_MASKROT	1
 #define LJ_TARGET_UNALIGNED	1
 #define LJ_ARCH_NUMMODE		LJ_NUMMODE_SINGLE_DUAL
-#ifndef LUAJIT_DISABLE_GC64
 #define LJ_TARGET_GC64		1
-#elif LJ_TARGET_OSX
-#error "macOS requires GC64 -- don't disable it"
 #endif
 
 #ifdef __GNUC__
@@ -773,4 +770,3 @@ extern void *LJ_WIN_LOADLIBA(const char *path);
 #define LJ_SECURITY_MODESTRING \
   "\004prng\007strhash\005strid\005mcode"
 
-#endif

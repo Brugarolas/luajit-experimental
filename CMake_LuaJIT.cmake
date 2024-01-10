@@ -1,82 +1,8 @@
-## CMakeList rewrite version from Makefile of the Luajit project.
-## Aim to integrate into other projects, no installation target provided.
-## Andrés Brugarolas changes
-## Copyright (c) PROSL License (2023)
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.5)
 
 project(luajit C)
 set(can_use_assembler TRUE)
 enable_language(ASM)
-
-## Set version
-set(MAJOR_VERSION 3)
-set(MINOR_VERSION 0)
-set(PATCH_VERSION 0)
-set(VERSION_NOT_FINAL ON)
-set(VERSION_NOT_FINAL_SUFFIX "-experimental")
-
-if (VERSION_NOT_FINAL)
-    set(PATCH_VERSION "${PATCH_VERSION}${VERSION_NOT_FINAL_SUFFIX}")
-endif()
-
-set(VERSION_STRING ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION})
-set(VERSION ${VERSION_STRING})
-
-set(ABIVER "5.1")
-set(NODOTABIVER 51)
-
-message(STATUS "LuaJIT Version: ${VERSION}")
-
-## SetC/C++ standard
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-## Set ccompiler and force system options
-option(USE_FORCE_GCC "Use GCC compiler" OFF)
-option(USE_FORCE_CLANG "Use Clang compiler" OFF)
-#option(USE_FORCE_VERSION_X64 "Force compiling for x86_64 (debuggin purposes)" OFF)
-#option(USE_FORCE_SYS_LINUX "Force compiling for Linux (debugging purposes)" OFF)
-
-if (USE_FORCE_GCC)
-    message(STATUS "Using GCC compiler")
-
-    # Find if GCC is installed
-    find_program(GCC_COMPILER gcc)
-    find_program(GXX_COMPILER g++)
-
-    if(GCC_COMPILER AND GXX_COMPILER)
-        set(CMAKE_C_COMPILER ${GCC_COMPILER})
-        set(CMAKE_CXX_COMPILER ${GXX_COMPILER})
-    else()
-        message(FATAL_ERROR "GCC compilers not found")
-    endif()
-endif()
-
-if (USE_FORCE_CLANG)
-    messagge(STATUS "Using Clang compiler")
-
-    # Find if Clang is installed
-    find_program(CLANG_COMPILER clang)
-    find_program(CLANGXX_COMPILER clang++)
-
-    if(CLANG_COMPILER AND CLANGXX_COMPILER)
-        set(CMAKE_C_COMPILER ${CLANG_COMPILER})
-        set(CMAKE_CXX_COMPILER ${CLANGXX_COMPILER})
-    else()
-        message(FATAL_ERROR "Clang compilers not found")
-    endif()
-endif()
-
-include(cmake/OptimizeCompilerFlags.cmake)
-
-##### ------------- #####
-
-#set(CMAKE_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}" "${CMAKE_CURRENT_SOURCE_DIR}/src")
-#set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS} ${XCFLAGS}")
-#include_directories(${CMAKE_SOURCE_DIR}/src)
-set(LUAJIT_DIR ${CMAKE_SOURCE_DIR})
 
 if(NOT LUAJIT_DIR)
   message(FATAL_ERROR "Must set LUAJIT_DIR to build luajit with CMake")
@@ -85,7 +11,7 @@ endif()
 set(LJ_DIR ${LUAJIT_DIR}/src)
 
 list(APPEND CMAKE_MODULE_PATH
-  "${CMAKE_CURRENT_LIST_DIR}/cmake"
+  "${CMAKE_CURRENT_LIST_DIR}/Modules"
 )
 
 if (NOT WIN32)
@@ -165,10 +91,10 @@ include(CheckTypeSize)
 include(TestBigEndian)
 test_big_endian(LJ_BIG_ENDIAN)
 
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/DetectArchitecture.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/Modules/DetectArchitecture.cmake)
 detect_architecture(LJ_DETECTED_ARCH)
 
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/DetectFPUAPI.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/Modules/DetectFPUApi.cmake)
 detect_fpu_mode(LJ_DETECTED_FPU_MODE)
 detect_fpu_abi(LJ_DETECTED_FPU_ABI)
 
@@ -248,7 +174,7 @@ if(WIN32 OR MINGW)
   set(DASM_FLAGS ${DASM_FLAGS} -D WIN)
 endif()
 
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/FindUnwind.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/Modules/FindUnwind.cmake)
 if (NOT unwind_FOUND)
   set(LUAJIT_NO_UNWIND ON)
   if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL mips64 OR
@@ -457,7 +383,7 @@ set(VM_DASC_PATH ${LJ_DIR}/vm_${DASM_ARCH}.dasc)
 
 # Build the minilua for host platform
 if(NOT CMAKE_CROSSCOMPILING)
-  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/src/host/minilua)
+  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/host/minilua)
   set(MINILUA_PATH $<TARGET_FILE:minilua>)
 else()
   make_directory(${CMAKE_CURRENT_BINARY_DIR}/minilua)
@@ -521,7 +447,7 @@ if(HOST_WINE)
 endif()
 
 if(NOT CMAKE_CROSSCOMPILING)
-  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm)
+  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/host/buildvm)
   set(BUILDVM_PATH $<TARGET_FILE:buildvm>)
   add_dependencies(buildvm buildvm_arch_h)
 else()

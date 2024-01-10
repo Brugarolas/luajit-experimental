@@ -13,8 +13,8 @@
 # Copyright (C) 2005-2023 Mike Pall. See Copyright Notice in luajit.h
 ##############################################################################
 
-MAJVER=  2
-MINVER=  1
+MAJVER=  3
+MINVER=  0
 ABIVER=  5.1
 
 # LuaJIT uses rolling releases. The release version is based on the time of

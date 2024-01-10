@@ -8,6 +8,8 @@
 *.manifest
 *.dmp
 *.swp
+.cache
+build
 .tags
 *~
 tags
