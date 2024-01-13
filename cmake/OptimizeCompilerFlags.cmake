@@ -168,8 +168,8 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
         endif()
 
         ## These optimizations depends on wether if LLVM is built with Polly support or Polly support is installed per separate
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvectorize -fslp-vectorize -finline-all-functions")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvectorize -fslp-vectorize -finline-all-functions")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvectorize -fslp-vectorize -finline-functions")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvectorize -fslp-vectorize -finline-functions")
         # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -floop-parallelize-all -floop-unroll-and-jam -fvectorize -fslp-vectorize -finline-functions")
         # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -floop-parallelize-all -floop-unroll-and-jam -fvectorize -fslp-vectorize -finline-functions")
 

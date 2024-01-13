@@ -273,7 +273,28 @@ static int handle_script(lua_State *L, char **argx)
   const char *fname = argx[0];
   if (strcmp(fname, "-") == 0 && strcmp(argx[-1], "--") != 0)
     fname = NULL;  /* stdin */
-  status = luaL_loadfile(L, fname);
+#ifdef ALLEGORY_BUILD
+  // call require('terra') before running a *.t file.
+  if (fname) {
+	  int len = strlen(fname);
+	  if (len >= 3 && fname[len - 1] == 't' && fname[len - 2] == '.') {
+		  lua_getglobal(L, "require");
+		  lua_pushliteral(L, "terra");
+		  lua_call(L, 1, 0);
+	  }
+  }
+  // use terra-overriden _G.loadfile instead of luaL_loadfile.
+  lua_getglobal(L, "loadfile");
+  lua_pushstring(L, fname);
+  lua_call(L, 1, 2); // pushes (chunk, nil) or (nil, err)
+  status = lua_isnil(L, -2);
+  if (status)
+    lua_remove(L, -2); // remove nil, leave the error
+  else
+    lua_pop(L, 1); // remove nil, leave the chunk
+#else
+  status = luaL_loadfile(L, fname);  // pushes the chunk or an error message
+#endif
   if (status == LUA_OK) {
     /* Fetch args from arg table. LUA_INIT or -e might have changed them. */
     int narg = 0;
@@ -532,6 +553,7 @@ static int pmain(lua_State *L)
   /* Stop collector during library initialization. */
   lua_gc(L, LUA_GCSTOP, 0);
   luaL_openlibs(L);
+  luaopen_utf8(L);
   lua_gc(L, LUA_GCRESTART, -1);
 
   createargtable(L, argv, s->argc, argn);

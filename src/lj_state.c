@@ -374,5 +374,8 @@ void LJ_FASTCALL lj_state_free(global_State *g, lua_State *L)
   }
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
   lj_mem_freet(g, L);
+#ifdef COUNTS
+  g->gc.thnum--;
+#endif
 }
 

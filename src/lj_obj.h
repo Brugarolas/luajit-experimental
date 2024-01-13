@@ -689,6 +689,9 @@ typedef struct global_State {
   uint8_t dispatchmode;	/* Dispatch mode. */
   uint8_t vmevmask;	/* VM event mask. */
   StrInternState str;	/* String interning. */
+#ifdef COUNTS
+  ssize_t strnum;	/* same as str.num but can be reset */
+#endif
   volatile int32_t vmstate;  /* VM state or current JIT code trace number. */
   GCRef mainthref;	/* Link to main thread. */
   SBuf tmpbuf;		/* Temporary string buffer. */

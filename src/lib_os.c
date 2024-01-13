@@ -76,7 +76,7 @@ LJLIB_CF(os_rename)
 
 LJLIB_CF(os_tmpname)
 {
-#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX
+#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX || LJ_TARGET_PSP2
   lj_err_caller(L, LJ_ERR_OSUNIQF);
   return 0;
 #else
@@ -101,7 +101,7 @@ LJLIB_CF(os_tmpname)
 
 LJLIB_CF(os_getenv)
 {
-#if LJ_TARGET_CONSOLE
+#if LJ_TARGET_CONSOLE || LJ_TARGET_PSP2
   lua_pushnil(L);
 #else
   lua_pushstring(L, getenv(luaL_checkstring(L, 1)));  /* if NULL push nil */

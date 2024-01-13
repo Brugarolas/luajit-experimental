@@ -327,7 +327,7 @@ void emit_asm(BuildCtx *ctx)
   fprintf(ctx->fp, "\n");
   switch (ctx->mode) {
   case BUILD_elfasm:
-#if !(LJ_TARGET_PS3 || LJ_TARGET_PSVITA)
+#if !(LJ_TARGET_PS3 || LJ_TARGET_PSVITA || LJ_TARGET_PSP2)
     fprintf(ctx->fp, "\t.section .note.GNU-stack,\"\"," ELFASM_PX "progbits\n");
 #endif
 #if LJ_TARGET_PPC && !LJ_TARGET_PS3 && !LJ_ABI_SOFTFP

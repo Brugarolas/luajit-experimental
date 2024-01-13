@@ -42,6 +42,8 @@ LJ_NORET LJ_NOINLINE static void clib_error_(lua_State *L)
 
 #if LJ_TARGET_CYGWIN
 #define CLIB_SOPREFIX	"cyg"
+#elif LJ_TARGET_PSP2
+#define CLIB_SOPREFIX	""
 #else
 #define CLIB_SOPREFIX	"lib"
 #endif
@@ -50,6 +52,8 @@ LJ_NORET LJ_NOINLINE static void clib_error_(lua_State *L)
 #define CLIB_SOEXT	"%s.dylib"
 #elif LJ_TARGET_CYGWIN
 #define CLIB_SOEXT	"%s.dll"
+#elif LJ_TARGET_PSP2
+#define CLIB_SOEXT	"%s.suprx"
 #else
 #define CLIB_SOEXT	"%s.so"
 #endif

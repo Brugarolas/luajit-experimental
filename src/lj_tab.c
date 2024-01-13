@@ -110,6 +110,9 @@ GCtab *lj_tab_newgc(lua_State *L, uint32_t asize, uint32_t hbits)
   }
   if (hbits)
     newhpart(L, t, hbits);
+#ifdef COUNTS
+  G(L)->gc.tabnum++;
+#endif
   return t;
 }
 
@@ -198,6 +201,22 @@ void LJ_FASTCALL lj_tab_clear(GCtab *t)
     setfreetop(t, node, &node[t->hmask+1]);
     clearhpart(t);
   }
+}
+
+/* Free a table. */
+void LJ_FASTCALL lj_tab_free(global_State *g, GCtab *t)
+{
+  if (t->hmask > 0)
+    lj_mem_freevec(g, noderef(t->node), t->hmask+1, Node);
+  if (t->asize > 0 && LJ_MAX_COLOSIZE != 0 && t->colo <= 0)
+    lj_mem_freevec(g, tvref(t->array), t->asize, TValue);
+  if (LJ_MAX_COLOSIZE != 0 && t->colo)
+    lj_mem_free(g, t, sizetabcolo((uint32_t)t->colo & 0x7f));
+  else
+    lj_mem_freet(g, t);
+#ifdef COUNTS
+  g->gc.tabnum--;
+#endif
 }
 
 /* -- Table resizing ------------------------------------------------------ */

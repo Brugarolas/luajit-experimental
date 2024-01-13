@@ -9,6 +9,7 @@
 #define lj_gc_c
 #define LUA_CORE
 
+#include "lj_arena.h"
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"

@@ -394,6 +394,53 @@ LJLIB_CF(debug_traceback)
   return 1;
 }
 
+LJLIB_CF(debug_counts)
+{
+#ifdef COUNTS
+  lua_pushinteger(L, G(L)->gc.total); // not resetable
+  lua_pushinteger(L, G(L)->gc.freed);
+  lua_pushinteger(L, G(L)->gc.allocated);
+  lua_pushinteger(L, G(L)->strnum);
+  lua_pushinteger(L, G(L)->gc.tabnum);
+  lua_pushinteger(L, G(L)->gc.fnum);
+  lua_pushinteger(L, G(L)->gc.thnum);
+  lua_pushinteger(L, G(L)->gc.udatanum);
+#ifdef LJ_HASFFI
+  lua_pushinteger(L, G(L)->gc.cdatanum);
+#else
+  lua_pushinteger(L, 0);
+#endif
+#if LJ_HASJIT
+  jit_State *J = L2J(L);
+  lua_pushinteger(L, J->tracenum);
+  lua_pushinteger(L, J->nsnaprestore);
+  lua_pushinteger(L, J->ntraceabort);
+  lua_pushinteger(L, J->szallmcarea); // mcode size: not resetable
+#else
+  lua_pushinteger(L, 0);
+  lua_pushinteger(L, 0);
+  lua_pushinteger(L, 0);
+  lua_pushinteger(L, 0);
+#endif
+  return 13;
+#else
+  return 0;
+#endif
+}
+
+LJLIB_CF(debug_reset_counts) {
+#ifdef COUNTS
+  G(L)->gc.freed = 0;
+  G(L)->gc.allocated = 0;
+#if LJ_HASJIT
+  jit_State *J = L2J(L);
+  J->nsnaprestore = 0;
+  J->ntraceabort = 0;
+#endif
+#endif
+  return 0;
+}
+
 /* ------------------------------------------------------------------------ */
 
 #include "lj_libdef.h"

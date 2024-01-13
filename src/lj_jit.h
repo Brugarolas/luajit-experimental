@@ -103,13 +103,18 @@
 /* Note: FMA is not set by default. */
 
 /* -- JIT engine parameters ----------------------------------------------- */
-
+#if LJ_TARGET_PSP2
+#define JIT_P_sizemcode_DEFAULT		1024
+#define JIT_P_maxmcode_DEFAULT          8192
+#else
+#define JIT_P_maxmcode_DEFAULT          512
 #if LJ_TARGET_WINDOWS || LJ_64
 /* See: https://devblogs.microsoft.com/oldnewthing/20031008-00/?p=42223 */
 #define JIT_P_sizemcode_DEFAULT		64
 #else
 /* Could go as low as 4K, but the mmap() overhead would be rather high. */
 #define JIT_P_sizemcode_DEFAULT		32
+#endif
 #endif
 
 /* Optimization parameters and their defaults. Length is a char in octal! */
@@ -515,6 +520,11 @@ typedef struct jit_State {
   MCode *mcbot;		/* Bottom of current mcode area. */
   size_t szmcarea;	/* Size of current mcode area. */
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
+#ifdef COUNTS
+  size_t tracenum;	/* Overall number of traces. */
+  size_t nsnaprestore;	/* Overall number of snap restores. */
+  size_t ntraceabort;	/* Overall number of abort traces. */
+#endif
 
   TValue errinfo;	/* Additional info element for trace errors. */
 

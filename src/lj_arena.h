@@ -74,7 +74,7 @@ int lj_arena_init(struct global_State *g, luaJIT_allocpages allocp,
 void lj_arena_cleanup(struct global_State *g);
 
 /* Add ARENA_FREELIST_CHUNK free arenas */
-inline void *lj_arena_alloc(arena_context *ctx)
+static inline void *lj_arena_alloc(arena_context *ctx)
 {
   if (!ctx->freelist_at) {
     ctx->freelist_at =
@@ -90,32 +90,29 @@ inline void *lj_arena_alloc(arena_context *ctx)
 }
 
 /* Free the last ARENA_FREELIST_CHUNK arenas */
-inline void lj_arena_free(arena_context *ctx, void *p)
+static inline void lj_arena_free(arena_context *ctx, void *p)
 {
   if (ctx->freelist_at == ARENA_FREELIST_SIZE) {
-    ctx->freepages(ctx->pageud,
-                   ctx->freelist +
-                       (ARENA_FREELIST_SIZE - ARENA_FREELIST_CHUNK),
-                   ARENA_FREELIST_CHUNK);
+    ctx->freepages(ctx->pageud, ctx->freelist + (ARENA_FREELIST_SIZE - ARENA_FREELIST_CHUNK), ARENA_FREELIST_CHUNK);
     ctx->freelist_at -= ARENA_FREELIST_CHUNK;
     ctx->mem_commit -= ARENA_FREELIST_CHUNK;
   }
   ctx->freelist[ctx->freelist_at++] = p;
 }
 
-inline void *lj_arena_allochuge(arena_context *ctx, size_t sz)
+static inline void *lj_arena_allochuge(arena_context *ctx, size_t sz)
 {
   ctx->mem_huge += sz;
   return ctx->reallochuge(ctx->pageud, NULL, 0, sz);
 }
 
-inline void lj_arena_freehuge(arena_context *ctx, void *p, size_t sz)
+static inline void lj_arena_freehuge(arena_context *ctx, void *p, size_t sz)
 {
   ctx->mem_huge -= sz;
   ctx->reallochuge(ctx->pageud, p, sz, 0);
 }
 
-inline void *lj_arena_reallochuge(arena_context *ctx, void *p, size_t osz, size_t nsz)
+static inline void *lj_arena_reallochuge(arena_context *ctx, void *p, size_t osz, size_t nsz)
 {
   ctx->mem_huge = ctx->mem_huge - osz + nsz;
   return ctx->reallochuge(ctx->pageud, p, osz, nsz);
