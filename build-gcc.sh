@@ -18,7 +18,7 @@ mkdir -p build
 cd build
 
 # Configure the project with CMake using Ninja
-cmake -G Ninja .. -DCMAKE_BUILD_TYPE=Release -USE_FORCE_GCC=ON
+cmake -G Ninja .. -DCMAKE_BUILD_TYPE=Release -DUSE_FORCE_GCC=ON
 
 # Build the project
 ninja

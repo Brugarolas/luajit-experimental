@@ -36,6 +36,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 ## Set ccompiler and force system options
 option(USE_FORCE_GCC "Use GCC compiler" OFF)
 option(USE_FORCE_CLANG "Use Clang compiler" OFF)
+option(USE_DEBUG_MODE "Enable debug mode" OFF)
 
 if (USE_FORCE_GCC)
     message(STATUS "Using GCC compiler")
@@ -53,7 +54,7 @@ if (USE_FORCE_GCC)
 endif()
 
 if (USE_FORCE_CLANG)
-    messagge(STATUS "Using Clang compiler")
+    message(STATUS "Using Clang compiler")
 
     # Find if Clang is installed
     find_program(CLANG_COMPILER clang)
@@ -67,7 +68,11 @@ if (USE_FORCE_CLANG)
     endif()
 endif()
 
-include(cmake/OptimizeCompilerFlags.cmake)
+if (USE_DEBUG_MODE)
+  include(cmake/DebugCompilerFlags.cmake)
+else()
+  include(cmake/OptimizeCompilerFlags.cmake)
+endif()
 
 ##### ------------- #####
 
@@ -561,7 +566,6 @@ if(IOS)
     COMPILE_FLAGS "-arch ${ARCHS} -isysroot ${CMAKE_OSX_SYSROOT} ${BITCODE}")
 endif()
 
-
 set(LJ_VM_S_PATH ${CMAKE_CURRENT_BINARY_DIR}/${LJ_VM_NAME})
 add_custom_command(OUTPUT ${LJ_VM_S_PATH}
   COMMAND ${HOST_WINE} ${BUILDVM_PATH} -m ${LJVM_MODE} -o ${LJ_VM_S_PATH}
@@ -621,12 +625,13 @@ add_custom_target(lj_gen_folddef ALL
 )
 
 file(GLOB_RECURSE SRC_LJCORE    "${LJ_DIR}/lj_*.c")
+file(GLOB MIMALLOC_SOURCES "${LJ_DIR}/mimalloc/**/*.c")
 file(GLOB_RECURSE SRC_LIBCORE   "${LJ_DIR}/lib_*.c")
 
 if(LUAJIT_BUILD_ALAMG)
   set(luajit_sources ${LJ_DIR}/ljamalg.c ${LJ_VM_NAME})
 else()
-  set(luajit_sources ${SRC_LIBCORE} ${SRC_LJCORE} ${LJ_VM_NAME})
+  set(luajit_sources ${SRC_LIBCORE} ${SRC_LJCORE} ${LJ_VM_NAME} ${MIMALLOC_SOURCES})
 endif()
 
 # Build the luajit static library
@@ -711,7 +716,7 @@ install(TARGETS libluajit
 
 # Build the luajit binary
 if (LUAJIT_BUILD_EXE)
-  add_executable(luajit ${LJ_DIR}/luajit.c)
+  add_executable(luajit ${LJ_DIR}/luajit.c ${MIMALLOC_SOURCES})
   target_link_libraries(luajit libluajit)
   target_include_directories(luajit PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
