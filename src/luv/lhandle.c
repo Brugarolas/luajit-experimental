@@ -14,6 +14,8 @@
  *  limitations under the License.
  *
  */
+
+#include "private.h"
 #include "lhandle.h"
 
 static luv_handle_t* luv_setup_handle(lua_State* L, luv_ctx_t* ctx) {

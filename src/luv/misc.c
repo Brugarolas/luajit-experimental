@@ -15,6 +15,9 @@
  *
  */
 
+#include "private.h"
+#include "util.h"
+#include "compat-5.3.h"
 #include "luv.h"
 #ifdef _WIN32
 #include <process.h>

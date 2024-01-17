@@ -15,6 +15,7 @@
  *
  */
 
+#include "private.h"
 #include "luv.h"
 
 static uv_fs_poll_t* luv_check_fs_poll(lua_State* L, int index) {

@@ -624,9 +624,15 @@ add_custom_target(lj_gen_folddef ALL
   DEPENDS ${LJ_FOLDDEF_PATH}
 )
 
+include_directories(lib/libuv/include)
+add_subdirectory(lib/libuv)
+
 file(GLOB_RECURSE SRC_LJCORE    "${LJ_DIR}/lj_*.c")
-file(GLOB MIMALLOC_SOURCES "${LJ_DIR}/mimalloc/**/*.c")
 file(GLOB_RECURSE SRC_LIBCORE   "${LJ_DIR}/lib_*.c")
+file(GLOB MIMALLOC_SOURCES  "${LJ_DIR}/mimalloc/**/*.c")
+file(GLOB_RECURSE LUV_SOURCES       "${LJ_DIR}/luv/*.c")
+
+list(APPEND SRC_LJCORE ${LUV_SOURCES})
 
 if(LUAJIT_BUILD_ALAMG)
   set(luajit_sources ${LJ_DIR}/ljamalg.c ${LJ_VM_NAME})
@@ -718,6 +724,7 @@ install(TARGETS libluajit
 if (LUAJIT_BUILD_EXE)
   add_executable(luajit ${LJ_DIR}/luajit.c ${MIMALLOC_SOURCES})
   target_link_libraries(luajit libluajit)
+  target_link_libraries(luajit uv)
   target_include_directories(luajit PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${LJ_DIR}

@@ -15,6 +15,7 @@
  *
  */
 
+#include "util.h"
 #include "luv.h"
 
 static int luv_constants(lua_State* L) {

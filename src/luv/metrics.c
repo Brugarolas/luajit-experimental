@@ -15,6 +15,7 @@
  *
  */
 
+#include "private.h"
 #include "luv.h"
 #include "util.h"
 

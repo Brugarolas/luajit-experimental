@@ -1,5 +1,4 @@
-#ifndef LUV_PRIVATE_H
-#define LUV_PRIVATE_H
+#pragma once
 
 #include <lua.h>
 #if (LUA_VERSION_NUM < 503)
@@ -129,6 +128,4 @@ static luv_release_vm release_vm_cb = NULL;
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
-#endif
-
 #endif
