@@ -108,4 +108,5 @@ LUA_API void luaJIT_createtable(lua_State *L, int narray, int nrec);
 /* Enforce (dynamic) linker error for version mismatches. Call from main. */
 LUA_API void LUAJIT_VERSION_SYM(void);
 
+#error "DO NOT USE luajit_rolling.h -- only include build-generated luajit.h"
 #endif
