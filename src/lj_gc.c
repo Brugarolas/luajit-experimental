@@ -226,6 +226,9 @@ static void gc_mark_start(global_State *g)
   gc_mark_tab(g, tabref(mainthread(g)->env));
   gc_marktv(g, &g->registrytv);
   gc_mark_gcroot(g);
+#if LJ_HASFFI
+  if (ctype_ctsG(g)) gc_markobj(g, ctype_ctsG(g)->finalizer);
+#endif
   g->gc.state = GCSpropagate;
   g->gc.accum = 0;
 }
