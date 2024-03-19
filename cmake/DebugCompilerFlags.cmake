@@ -1,0 +1,19 @@
+message(STATUS "Debug mode enabled")
+set(CMAKE_BUILD_TYPE Debug)
+set(BUILD_TYPE "Debug")
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mbmi")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mbmi")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx2")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Wall -Wextra")
+#set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -fsanitize=address")
+#set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -fsanitize=address")
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
+export const urlAlphabet = 'ModuleSymbhasOwnPr-0123456789ABCDEFGHNRVfgctiUvz_KqYTJkLxpZXIjQW';

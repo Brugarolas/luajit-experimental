@@ -38,13 +38,23 @@
 void sys_icache_invalidate(void *start, size_t len);
 #endif
 
+#if LJ_TARGET_PSP2
+#include <psp2/kernel/sysmem.h>
+#endif
+
 /* Synchronize data/instruction cache. */
 void lj_mcode_sync(void *start, void *end)
 {
 #ifdef LUAJIT_USE_VALGRIND
   VALGRIND_DISCARD_TRANSLATIONS(start, (char *)end-(char *)start);
 #endif
-#if LJ_TARGET_X86ORX64
+#if LJ_TARGET_PSP2
+  SceUID block;
+  void *base = (void *)((uintptr_t)start & ~(uintptr_t)0xFFFFF);
+  block = sceKernelFindMemBlockByAddr(base, 0);
+  /* Removed Assertion */
+  sceKernelSyncVMDomain(block, start, (char *)end-(char *)start);
+#elif LJ_TARGET_X86ORX64
   UNUSED(start); UNUSED(end);
 #elif LJ_TARGET_WINDOWS
   FlushInstructionCache(GetCurrentProcess(), start, (char *)end-(char *)start);
@@ -63,7 +73,58 @@ void lj_mcode_sync(void *start, void *end)
 
 #if LJ_HASJIT
 
-#if LJ_TARGET_WINDOWS
+#if LJ_TARGET_PSP2
+
+#define LUAJIT_PSP2PROTECT_MCODE
+#define MCPROT_RX 0
+#define MCPROT_RWX 1
+
+/*
+** NYI: proper fix of the potential race condition. 
+** Currently there's only a dirty hack on lj_mcode_patch.
+*/
+static int mcode_setprot(void *p, size_t sz, int prot)
+{
+  UNUSED(p); UNUSED(sz);
+  if (MCPROT_RX == prot)
+    return sceKernelCloseVMDomain();
+  else
+    return sceKernelOpenVMDomain();
+}
+
+static void *mcode_alloc_at(jit_State *J, uintptr_t hint, size_t sz, int prot)
+{
+  void *p;
+  int fail;
+  SceUID block = sceKernelAllocMemBlockForVM("LuaJITCodeMemBlock", sz);
+  if (block < 0) {
+    fail = 1;
+  } else if (LJ_UNLIKELY(sceKernelGetMemBlockBase(block, &p) < 0)) {
+    sceKernelFreeMemBlock(block);
+    fail = 1;
+  } else if (mcode_setprot(p, sz, prot)) {
+    sceKernelFreeMemBlock(block);
+    fail = 1;
+  } else {
+    fail = 0;
+  }
+  if (fail) {
+    if (!hint) lj_trace_err(J, LJ_TRERR_MCODEAL);
+    p = NULL;
+  }
+  return p;
+}
+
+static void mcode_free(jit_State *J, void *p, size_t sz)
+{
+  SceUID block;
+  void *base = (void *)((uintptr_t)p & ~(uintptr_t)0xFFFFF);
+  block = sceKernelFindMemBlockByAddr(base, 0);
+  /* Removed Assertion */
+  sceKernelFreeMemBlock(block);
+}
+
+#elif LJ_TARGET_WINDOWS
 
 #define MCPROT_RW	PAGE_READWRITE
 #define MCPROT_RX	PAGE_EXECUTE_READ
@@ -159,6 +220,12 @@ static void mcode_protect(jit_State *J, int prot)
 }
 
 #else
+#if defined(LUAJIT_PSP2PROTECT_MCODE)
+
+#define MCPROT_GEN  MCPROT_RWX
+#define MCPROT_RUN  MCPROT_RX
+
+#else
 
 /* This is the default behaviour and much safer:
 **
@@ -170,6 +237,8 @@ static void mcode_protect(jit_State *J, int prot)
 */
 #define MCPROT_GEN	MCPROT_RW
 #define MCPROT_RUN	MCPROT_RX
+
+#endif
 
 /* Protection twiddling failed. Probably due to kernel security. */
 static LJ_NORET LJ_NOINLINE void mcode_protfail(jit_State *J)
@@ -331,7 +400,12 @@ MCode *lj_mcode_patch(jit_State *J, MCode *ptr, int finish)
 #if LUAJIT_SECURITY_MCODE
     if (J->mcarea == ptr)
       mcode_protect(J, MCPROT_RUN);
+#ifdef LUAJIT_PSP2PROTECT_MCODE
+    /* Restore previous state of the current (top) MCode area */
+    else if (LJ_UNLIKELY(mcode_setprot(NULL, 0, J->mcprot)))
+#else
     else if (LJ_UNLIKELY(mcode_setprot(ptr, ((MCLink *)ptr)->size, MCPROT_RUN)))
+#endif
       mcode_protfail(J);
 #endif
     return NULL;

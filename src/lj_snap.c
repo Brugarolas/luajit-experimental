@@ -224,7 +224,7 @@ static BCReg snap_usedef(jit_State *J, uint8_t *udf,
   while (o) {
     if (uvval(gco2uv(o)) < J->L->base) break;
     udf[uvval(gco2uv(o)) - J->L->base] = 0;
-    o = gcref(o->gch.nextgc);
+    o = gcref(o->uv.next);
   }
 
 #define USE_SLOT(s)		udf[(s)] &= ~1
@@ -1020,6 +1020,9 @@ const BCIns *lj_snap_restore(jit_State *J, void *exptr)
     L->top = frame + snap->nslots;
     break;
   }
+#ifdef COUNTS
+  J->nsnaprestore++;
+#endif
   return pc;
 }
 

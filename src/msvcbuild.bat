@@ -23,8 +23,8 @@
 @set DASMDIR=..\dynasm
 @set DASM=%DASMDIR%\dynasm.lua
 @set DASC=vm_x64.dasc
-@set LJDLLNAME=lua51.dll
-@set LJLIBNAME=lua51.lib
+@set LJDLLNAME=Lua5.3.3r.dll
+@set LJLIBNAME=Lua5.3.3r.lib
 @set BUILDTYPE=release
 @set ALL_LIB=lib_base.c lib_math.c lib_bit.c lib_string.c lib_table.c lib_io.c lib_os.c lib_package.c lib_debug.c lib_jit.c lib_ffi.c lib_buffer.c
 

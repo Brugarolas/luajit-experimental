@@ -249,14 +249,14 @@ static int io_file_write(lua_State *L, IOFileUD *iof, int start)
 static int io_file_iter(lua_State *L)
 {
   GCfunc *fn = curr_func(L);
-  IOFileUD *iof = uddata(udataV(&fn->c.upvalue[0]));
+  IOFileUD *iof = uddata(udataV(&fn->c.data->upvalue[0]));
   int n = fn->c.nupvalues - 1;
   if (iof->fp == NULL)
     lj_err_caller(L, LJ_ERR_IOCLFL);
   L->top = L->base;
   if (n) {  /* Copy upvalues with options to stack. */
     lj_state_checkstack(L, (MSize)n);
-    memcpy(L->top, &fn->c.upvalue[1], n*sizeof(TValue));
+    memcpy(L->top, &fn->c.data->upvalue[1], n * sizeof(TValue));
     L->top += n;
   }
   n = io_file_read(L, iof, 0);
@@ -439,7 +439,7 @@ LJLIB_CF(io_popen)
 LJLIB_CF(io_tmpfile)
 {
   IOFileUD *iof = io_file_new(L);
-#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX
+#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX || LJ_TARGET_PSP2
   iof->fp = NULL; errno = ENOSYS;
 #else
   iof->fp = tmpfile();

@@ -130,7 +130,7 @@ GCtrace * LJ_FASTCALL lj_trace_alloc(lua_State *L, GCtrace *T)
   GCtrace *T2 = lj_mem_newt(L, (MSize)sz, GCtrace);
   char *p = (char *)T2 + sztr;
   T2->gct = ~LJ_TTRACE;
-  T2->marked = 0;
+  T2->gcflags = 0;
   T2->traceno = 0;
   T2->ir = (IRIns *)p - T->nk;
   T2->nins = T->nins;
@@ -138,6 +138,9 @@ GCtrace * LJ_FASTCALL lj_trace_alloc(lua_State *L, GCtrace *T)
   T2->nsnap = T->nsnap;
   T2->nsnapmap = T->nsnapmap;
   memcpy(p, T->ir + T->nk, szins);
+#ifdef COUNTS
+  L2J(L)->tracenum++;
+#endif
   return T2;
 }
 
@@ -150,7 +153,7 @@ static void trace_save(jit_State *J, GCtrace *T)
   memcpy(T, &J->cur, sizeof(GCtrace));
   setgcrefr(T->nextgc, J2G(J)->gc.root);
   setgcrefp(J2G(J)->gc.root, T);
-  newwhite(J2G(J), T);
+  newwhite(T);
   T->gct = ~LJ_TTRACE;
   T->ir = (IRIns *)p - J->cur.nk;  /* The IR has already been copied above. */
 #if LJ_ABI_PAUTH
@@ -181,6 +184,9 @@ void LJ_FASTCALL lj_trace_free(global_State *g, GCtrace *T)
   lj_mem_free(g, T,
     ((sizeof(GCtrace)+7)&~7) + (T->nins-T->nk)*sizeof(IRIns) +
     T->nsnap*sizeof(SnapShot) + T->nsnapmap*sizeof(SnapEntry));
+#ifdef COUNTS
+  J->tracenum--;
+#endif
 }
 
 /* Re-enable compiling a prototype by unpatching any modified bytecode. */
@@ -572,8 +578,12 @@ static int trace_downrec(jit_State *J)
   /* Restart recording at the return instruction. */
   lj_assertJ(J->pt != NULL, "no active prototype");
   lj_assertJ(bc_isret(bc_op(*J->pc)), "not at a return bytecode");
-  if (bc_op(*J->pc) == BC_RETM)
+  if (bc_op(*J->pc) == BC_RETM) {
+#ifdef COUNTS
+    J->ntraceabort++;
+#endif
     return 0;  /* NYI: down-recursion with RETM. */
+  }
   J->parent = 0;
   J->exitno = 0;
   J->state = LJ_TRACE_RECORD;
@@ -656,6 +666,9 @@ static int trace_abort(jit_State *J)
     return trace_downrec(J);
   else if (e == LJ_TRERR_MCODEAL)
     lj_trace_flushall(L);
+#ifdef COUNTS
+  J->ntraceabort++;
+#endif
   return 0;
 }
 

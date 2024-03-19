@@ -104,13 +104,18 @@
 /* Note: FMA is not set by default. */
 
 /* -- JIT engine parameters ----------------------------------------------- */
-
+#if LJ_TARGET_PSP2
+#define JIT_P_sizemcode_DEFAULT		1024
+#define JIT_P_maxmcode_DEFAULT          8192
+#else
+#define JIT_P_maxmcode_DEFAULT          512
 #if LJ_TARGET_WINDOWS || LJ_64
 /* See: https://devblogs.microsoft.com/oldnewthing/20031008-00/?p=42223 */
 #define JIT_P_sizemcode_DEFAULT		64
 #else
 /* Could go as low as 4K, but the mmap() overhead would be rather high. */
 #define JIT_P_sizemcode_DEFAULT		32
+#endif
 #endif
 
 /* Optimization parameters and their defaults. Length is a char in octal! */
@@ -260,11 +265,12 @@ typedef struct GCtrace {
   GCHeader;
   uint16_t nsnap;	/* Number of snapshots. */
   IRRef nins;		/* Next IR instruction. Biased with REF_BIAS. */
+  GCRef nextgc;
 #if LJ_GC64
   uint32_t unused_gc64;
 #endif
-  GCRef gclist;
   IRIns *ir;		/* IR instructions/constants. Biased with REF_BIAS. */
+  GCRef gclist;
   IRRef nk;		/* Lowest IR constant. Biased with REF_BIAS. */
   uint32_t nsnapmap;	/* Number of snapshot map elements. */
   SnapShot *snap;	/* Snapshot array. */
@@ -299,6 +305,7 @@ typedef struct GCtrace {
   check_exp((n)>0 && (MSize)(n)<J->sizetrace, (GCtrace *)gcref(J->trace[(n)]))
 
 LJ_STATIC_ASSERT(offsetof(GChead, gclist) == offsetof(GCtrace, gclist));
+LJ_STATIC_ASSERT(offsetof(GChead, nextgc) == offsetof(GCtrace, nextgc));
 
 static LJ_AINLINE MSize snap_nextofs(GCtrace *T, SnapShot *snap)
 {
@@ -514,6 +521,11 @@ typedef struct jit_State {
   MCode *mcbot;		/* Bottom of current mcode area. */
   size_t szmcarea;	/* Size of current mcode area. */
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
+#ifdef COUNTS
+  size_t tracenum;	/* Overall number of traces. */
+  size_t nsnaprestore;	/* Overall number of snap restores. */
+  size_t ntraceabort;	/* Overall number of abort traces. */
+#endif
 
   TValue errinfo;	/* Additional info element for trace errors. */
 

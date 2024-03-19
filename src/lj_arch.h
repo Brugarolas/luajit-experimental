@@ -36,11 +36,12 @@
 
 /* Target OS. */
 #define LUAJIT_OS_OTHER		0
-#define LUAJIT_OS_WINDOWS	1
-#define LUAJIT_OS_LINUX		2
-#define LUAJIT_OS_OSX		3
-#define LUAJIT_OS_BSD		4
-#define LUAJIT_OS_POSIX		5
+#define LUAJIT_OS_PSP2  1
+#define LUAJIT_OS_WINDOWS	2
+#define LUAJIT_OS_LINUX		3
+#define LUAJIT_OS_OSX		4
+#define LUAJIT_OS_BSD		5
+#define LUAJIT_OS_POSIX		6
 
 /* Number mode. */
 #define LJ_NUMMODE_SINGLE	0	/* Single-number mode only. */
@@ -78,7 +79,9 @@
 /* Select native OS if no target OS defined. */
 #ifndef LUAJIT_OS
 
-#if defined(_WIN32) && !defined(_XBOX_VER)
+#if defined(__vita__)
+#define LUAJIT_OS	LUAJIT_OS_PSP2
+#elif defined(_WIN32) && !defined(_XBOX_VER)
 #define LUAJIT_OS	LUAJIT_OS_WINDOWS
 #elif defined(__linux__)
 #define LUAJIT_OS	LUAJIT_OS_LINUX
@@ -117,16 +120,20 @@
 #define LJ_OS_NAME	"BSD"
 #elif LUAJIT_OS == LUAJIT_OS_POSIX
 #define LJ_OS_NAME	"POSIX"
+#elif LUAJIT_OS == LUAJIT_OS_PSP2
+#define LJ_OS_NAME	"PSP2"
+#define LUAJIT_USE_SYSMALLOC 1
 #else
 #define LJ_OS_NAME	"Other"
 #endif
 
+#define LJ_TARGET_PSP2		(LUAJIT_OS == LUAJIT_OS_PSP2)
 #define LJ_TARGET_WINDOWS	(LUAJIT_OS == LUAJIT_OS_WINDOWS)
 #define LJ_TARGET_LINUX		(LUAJIT_OS == LUAJIT_OS_LINUX)
 #define LJ_TARGET_OSX		(LUAJIT_OS == LUAJIT_OS_OSX)
 #define LJ_TARGET_BSD		(LUAJIT_OS == LUAJIT_OS_BSD)
 #define LJ_TARGET_POSIX		(LUAJIT_OS > LUAJIT_OS_WINDOWS)
-#define LJ_TARGET_DLOPEN	LJ_TARGET_POSIX
+#define LJ_TARGET_DLOPEN	(LJ_TARGET_POSIX || LJ_TARGET_PSP2)
 
 #if TARGET_OS_IPHONE
 #define LJ_TARGET_IOS		1
@@ -616,6 +623,8 @@
 #endif
 
 #if defined(LUAJIT_DISABLE_PROFILE)
+#define LJ_HASPROFILE		0
+#elif LJ_TARGET_PSP2
 #define LJ_HASPROFILE		0
 #elif LJ_TARGET_POSIX
 #define LJ_HASPROFILE		1

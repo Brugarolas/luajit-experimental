@@ -13,18 +13,12 @@
 
 GCudata *lj_udata_new(lua_State *L, MSize sz, GCtab *env)
 {
-  GCudata *ud = lj_mem_newt(L, sizeof(GCudata) + sz, GCudata);
-  global_State *g = G(L);
-  newwhite(g, ud);  /* Not finalized. */
-  ud->gct = ~LJ_TUDATA;
+  GCudata *ud = lj_mem_allocudata(L, sz);
   ud->udtype = UDTYPE_USERDATA;
   ud->len = sz;
   /* NOBARRIER: The GCudata is new (marked white). */
   setgcrefnull(ud->metatable);
   setgcref(ud->env, obj2gco(env));
-  /* Chain to userdata list (after main thread). */
-  setgcrefr(ud->nextgc, mainthread(g)->nextgc);
-  setgcref(mainthread(g)->nextgc, obj2gco(ud));
   return ud;
 }
 
