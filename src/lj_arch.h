@@ -31,6 +31,8 @@
 #define LUAJIT_ARCH_mips32	6
 #define LUAJIT_ARCH_MIPS64	7
 #define LUAJIT_ARCH_mips64	7
+#define LUAJIT_ARCH_S390X	8
+#define LUAJIT_ARCH_s390x	8
 
 /* Target OS. */
 #define LUAJIT_OS_OTHER		0
@@ -60,6 +62,8 @@
 #define LUAJIT_TARGET	LUAJIT_ARCH_ARM
 #elif defined(__aarch64__) || defined(_M_ARM64)
 #define LUAJIT_TARGET	LUAJIT_ARCH_ARM64
+#elif defined(__s390x__) || defined(__s390x)
+#define LUAJIT_TARGET	LUAJIT_ARCH_S390X
 #elif defined(__ppc__) || defined(__ppc) || defined(__PPC__) || defined(__PPC) || defined(__powerpc__) || defined(__powerpc) || defined(__POWERPC__) || defined(__POWERPC) || defined(_M_PPC)
 #define LUAJIT_TARGET	LUAJIT_ARCH_PPC
 #elif defined(__mips64__) || defined(__mips64) || defined(__MIPS64__) || defined(__MIPS64)
@@ -223,6 +227,10 @@
 #error "macOS requires GC64 -- don't disable it"
 #endif
 
+#ifdef __GNUC__
+#define LJ_HAS_OPTIMISED_HASH  1
+#endif
+
 #elif LUAJIT_TARGET == LUAJIT_ARCH_ARM
 
 #define LJ_ARCH_NAME		"arm"
@@ -303,7 +311,7 @@
 #define LJ_ARCH_NAME		"ppc"
 
 #if !defined(LJ_ARCH_HASFPU)
-#if defined(_SOFT_FLOAT) || defined(_SOFT_DOUBLE)
+#if defined(_SOFT_FLOAT) || defined(_SOFT_DOUBLE) || defined(__NO_FPRS__)
 #define LJ_ARCH_HASFPU		0
 #else
 #define LJ_ARCH_HASFPU		1
@@ -311,7 +319,7 @@
 #endif
 
 #if !defined(LJ_ABI_SOFTFP)
-#if defined(_SOFT_FLOAT) || defined(_SOFT_DOUBLE)
+#if defined(_SOFT_FLOAT) || defined(_SOFT_DOUBLE) || defined(__NO_FPRS__)
 #define LJ_ABI_SOFTFP		1
 #else
 #define LJ_ABI_SOFTFP		0
@@ -336,9 +344,18 @@
 #if LJ_TARGET_CONSOLE
 #define LJ_ARCH_PPC32ON64	1
 #define LJ_ARCH_NOFFI		1
+#if LJ_TARGET_PS3
+#define LJ_ARCH_PPC_OPD		1
+#endif
 #elif LJ_ARCH_BITS == 64
-#error "No support for PPC64"
-#undef LJ_TARGET_PPC
+#define LJ_ARCH_PPC32ON64	1
+#define LJ_ARCH_NOJIT		1	/* NYI */
+#if _CALL_ELF == 2
+#define LJ_ARCH_PPC_ELFV2	1
+#else
+#define LJ_ARCH_PPC_OPD		1
+#define LJ_ARCH_PPC_OPDENV	1
+#endif
 #endif
 
 #if _ARCH_PWR7
@@ -446,6 +463,21 @@
 #define LJ_ARCH_VERSION		10
 #endif
 
+#elif LUAJIT_TARGET == LUAJIT_ARCH_S390X
+
+#define LJ_ARCH_NAME		"s390x"
+#define LJ_ARCH_BITS		64
+#define LJ_ARCH_ENDIAN		LUAJIT_BE
+#define LJ_TARGET_S390X		1
+#define LJ_TARGET_EHRETREG	0xe
+#define LJ_TARGET_JUMPRANGE	32	/* +-2^32 = +-4GB (32-bit, halfword aligned) */
+#define LJ_TARGET_MASKSHIFT	1
+#define LJ_TARGET_MASKROT	1
+#define LJ_TARGET_UNALIGNED	1
+#define LJ_ARCH_NUMMODE		LJ_NUMMODE_DUAL
+#define LJ_TARGET_GC64		1
+#define LJ_ARCH_NOJIT		1	/* NYI */
+
 #else
 #error "No target architecture defined"
 #endif
@@ -459,7 +491,7 @@
 #error "Need at least GCC 3.4 or newer"
 #endif
 #elif LJ_TARGET_X64
-#if __GNUC__ < 4
+#if 0 && __GNUC__ < 4
 #error "Need at least GCC 4.0 or newer"
 #endif
 #elif LJ_TARGET_ARM
@@ -512,15 +544,6 @@
 #if defined(_ILP32)
 #error "No support for ILP32 model on ARM64"
 #undef LJ_TARGET_ARM64
-#endif
-#elif LJ_TARGET_PPC
-#if defined(_LITTLE_ENDIAN) && (!defined(_BYTE_ORDER) || (_BYTE_ORDER == _LITTLE_ENDIAN))
-#error "No support for little-endian PPC32"
-#undef LJ_TARGET_PPC
-#endif
-#if defined(__NO_FPRS__) && !defined(_SOFT_FLOAT)
-#error "No support for PPC/e500, use LuaJIT 2.0"
-#undef LJ_TARGET_PPC
 #endif
 #elif LJ_TARGET_MIPS32
 #if !((defined(_MIPS_SIM_ABI32) && _MIPS_SIM == _MIPS_SIM_ABI32) || (defined(_ABIO32) && _MIPS_SIM == _ABIO32))
@@ -683,6 +706,10 @@ extern void *LJ_WIN_LOADLIBA(const char *path);
 #endif
 #endif
 
+#if LUAJIT_TARGET == LUAJIT_ARCH_PPC && LJ_ARCH_ENDIAN == LUAJIT_LE
+#define LJ_NO_UNWIND            0
+#define LJ_UNWIND_EXT           0
+#else
 #if defined(LUAJIT_NO_UNWIND) || __GNU_COMPACT_EH__ || defined(__symbian__) || LJ_TARGET_IOS || LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5
 #define LJ_NO_UNWIND		1
 #endif
@@ -692,6 +719,7 @@ extern void *LJ_WIN_LOADLIBA(const char *path);
 #else
 #define LJ_UNWIND_EXT		0
 #endif
+#endif  //#if LUAJIT_TARGET == LUAJIT_ARCH_PPC && LJ_ARCH_ENDIAN == LUAJIT_LE
 
 #if LJ_UNWIND_EXT && LJ_HASJIT && !LJ_TARGET_ARM && !(LJ_ABI_WIN && LJ_TARGET_X86)
 #define LJ_UNWIND_JIT		1

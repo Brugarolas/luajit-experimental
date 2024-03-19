@@ -33,3 +33,6 @@ $RECYCLE.BIN/
 .tags
 .cache
 build
+*~
+tags
+*.swo
