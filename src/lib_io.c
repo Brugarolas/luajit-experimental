@@ -25,6 +25,7 @@
 #include "lj_strfmt.h"
 #include "lj_ff.h"
 #include "lj_lib.h"
+#include "lj_meta.h"
 
 /* Userdata payload for I/O file. */
 typedef struct IOFileUD {
@@ -75,6 +76,8 @@ static IOFileUD *io_file_new(lua_State *L)
   ud->udtype = UDTYPE_IO_FILE;
   /* NOBARRIER: The GCudata is new (marked white). */
   setgcrefr(ud->metatable, curr_func(L)->c.env);
+  if (lj_meta_fastg(G(L), tabref(ud->metatable), MM_gc))
+    lj_mem_registergc_udata(L, ud);
   iof->fp = NULL;
   iof->type = IOFILE_TYPE_FILE;
   return iof;
@@ -182,7 +185,7 @@ static int io_file_readlen(lua_State *L, FILE *fp, MSize m)
   } else {
     int c = getc(fp);
     ungetc(c, fp);
-    setstrV(L, L->top++, &G(L)->strempty);
+    setstrV(L, L->top++, G(L)->strempty);
     return (c != EOF);
   }
 }
@@ -531,6 +534,8 @@ static GCobj *io_std_new(lua_State *L, FILE *fp, const char *name)
   ud->udtype = UDTYPE_IO_FILE;
   /* NOBARRIER: The GCudata is new (marked white). */
   setgcref(ud->metatable, gcV(L->top-3));
+  if (lj_meta_fastg(G(L), tabref(ud->metatable), MM_gc))
+    lj_mem_registergc_udata(L, ud);
   iof->fp = fp;
   iof->type = IOFILE_TYPE_STDF;
   lua_setfield(L, -2, name);

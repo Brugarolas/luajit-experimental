@@ -31,8 +31,9 @@ $RECYCLE.BIN/
 *.dmp
 *.swp
 .tags
+build/
+.idea/
 .cache
-build
 *~
 tags
 *.swo

@@ -197,6 +197,9 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   lj_lex_init(L);
   fixstring(lj_err_str(L, LJ_ERR_ERRMEM));  /* Preallocate memory error msg. */
   g->gc.threshold = 4*g->gc.total;
+#if LJ_HASFFI
+  lj_ctype_initfin(L);
+#endif
   lj_trace_initstate(g);
   lj_err_verify();
   return NULL;
@@ -209,7 +212,6 @@ static void close_state(lua_State *L)
   lj_gc_freeall(g);
   lj_assertG(gcref(g->gc.root) == obj2gco(L),
 	     "main thread is not first GC object");
-  lj_assertG(g->str.num == 0, "leaked %d strings", g->str.num);
   lj_trace_freestate(g);
 #if LJ_HASFFI
   lj_ctype_freestate(g);
@@ -224,6 +226,7 @@ static void close_state(lua_State *L)
   }
 #endif
   lj_arena_cleanup(g);
+  lj_mem_freevec(g, g->str.secondary_list, g->str.secondary_list_capacity, MRef);
   lj_assertG(g->gc.ctx.mem_commit == 0, "memory leak of %u arenas",
              g->gc.ctx.mem_commit);
   lj_assertG(g->gc.ctx.mem_huge == 0, "memory leak of %llu huge arena bytes",
@@ -244,7 +247,7 @@ lua_State *lj_state_newstate(lua_Alloc allocf, void *allocd)
 #else
 LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
 {
-  return lj_newstate(allocf, allocd, NULL, NULL, NULL, NULL);
+  return lj_newstate(allocf, allocd, NULL, NULL, NULL, NULL, NULL);
 }
 #endif
 
@@ -252,6 +255,7 @@ lua_State *lj_newstate(lua_Alloc allocf, void *allocd,
                        luaJIT_allocpages allocp,
                        luaJIT_freepages freep,
                        luaJIT_reallochuge realloch,
+                       luaJIT_reallocraw rawalloc,
                        void *page_ud)
 {
   PRNGState prng;
@@ -279,19 +283,17 @@ lua_State *lj_newstate(lua_Alloc allocf, void *allocd,
   g->allocf = allocf;
   g->allocd = allocd;
   g->gc.currentsweep = LJ_GC_SWEEP0;
-  if (!lj_arena_init(g, allocp, freep, realloch, page_ud)) {
+  if (!lj_arena_init(g, allocp, freep, realloch, rawalloc, page_ud)) {
     close_state(L);
     return NULL;
   }
   L->gct = ~LJ_TTHREAD;
-  L->gcflags = LJ_GC_FIXED | LJ_GC_SFIXED;  /* Prevent free. */
+  L->gcflags = LJ_GC_SFIXED;  /* Prevent free. */
   L->dummy_ffid = FF_C;
   setmref(L->glref, g);
   g->gc.currentblack = LJ_GC_BLACK0;
   g->gc.currentblackgray = LJ_GC_BLACK0 | LJ_GC_GRAY;
   g->gc.safecolor = 0;
-  g->strempty.gcflags = 0;
-  g->strempty.gct = ~LJ_TSTR;
   g->prng = prng;
 #ifndef LUAJIT_USE_SYSMALLOC
   if (allocf == lj_alloc_f) {
@@ -347,7 +349,7 @@ LUA_API void lua_close(lua_State *L)
 #endif
   setgcrefnull(g->cur_L);
   lj_func_closeuv(L, tvref(L->stack));
-  lj_gc_separateudata(g, 1);  /* Separate udata which have GC metamethods. */
+  lj_gc_separateudata(g);  /* Separate udata which have GC metamethods. */
 #if LJ_HASJIT
   G2J(g)->flags &= ~JIT_F_ON;
   G2J(g)->state = LJ_TRACE_IDLE;
@@ -360,8 +362,9 @@ LUA_API void lua_close(lua_State *L)
     L->cframe = NULL;
     if (lj_vm_cpcall(L, NULL, NULL, cpfinalize) == LUA_OK) {
       if (++i >= 10) break;
-      lj_gc_separateudata(g, 1);  /* Separate udata again. */
-      if (gcref(g->gc.mmudata) == NULL)  /* Until nothing is left to do. */
+      lj_gc_separateudata(g);  /* Separate udata again. */
+      if (gcref(g->gc.mmudata) == NULL && gcref(g->gc.fin_list) == NULL)
+          /* Until nothing is left to do. */
 	break;
     }
   }
@@ -383,8 +386,6 @@ lua_State *lj_state_new(lua_State *L)
   setgcrefr(L1->env, L->env);
   stack_init(L1, L);  /* init stack */
   lj_assertL(iswhite(G(L), obj2gco(L1)), "new thread object is not white");
-  L1->exdata = L->exdata;
-  L1->exdata2 = L->exdata2;
   return L1;
 }
 
