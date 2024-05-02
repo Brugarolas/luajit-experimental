@@ -234,9 +234,6 @@ static void gc_mark_start(global_State *g)
   gc_mark_tab(g, tabref(mainthread(g)->env));
   gc_marktv(g, &g->registrytv);
   gc_mark_gcroot(g);
-#if LJ_HASFFI
-  if (ctype_ctsG(g)) gc_markobj(g, ctype_ctsG(g)->finalizer);
-#endif
   g->gc.state = GCSpropagate;
   g->gc.accum = 0;
 }
@@ -300,8 +297,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
     }
     if (weak) {  /* Weak tables are cleared in the atomic phase. */
 #if LJ_HASFFI
-      CTState *cts = ctype_ctsG(g);
-      if (cts && cts->finalizer == t) {
+      if (gcref(g->gcroot[GCROOT_FFI_FIN]) == obj2gco(t)) {
 	weak = (int)(~0u & ~LJ_GC_WEAKVAL);
       } else
 #endif
@@ -1755,7 +1751,7 @@ static void gc_finalize(lua_State *L)
     o->gch.gcflags &= (uint8_t)~LJ_GC_CDATA_FIN;
     /* Resolve finalizer. */
     setcdataV(L, &tmp, gco2cd(o));
-    tv = lj_tab_set(L, ctype_ctsG(g)->finalizer, &tmp);
+    tv = lj_tab_set(L, tabref(g->gcroot[GCROOT_FFI_FIN]), &tmp);
     if (!tvisnil(tv)) {
       g->gc.nocdatafin = 0;
       copyTV(L, &tmp, tv);
@@ -2114,7 +2110,7 @@ static size_t gc_onestep(lua_State *L)
       return GCFINALIZECOST;
     }
 #if LJ_HASFFI
-    if (!g->gc.nocdatafin) lj_tab_rehash(L, ctype_ctsG(g)->finalizer);
+    if (!g->gc.nocdatafin) lj_tab_rehash(L, tabref(g->gcroot[GCROOT_FFI_FIN]));
 #endif
     g->gc.state = GCSpause;  /* End of GC cycle. */
     g->gc.debt = 0;
