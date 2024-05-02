@@ -259,11 +259,12 @@ typedef struct GCtrace {
   GCHeader;
   uint16_t nsnap;	/* Number of snapshots. */
   IRRef nins;		/* Next IR instruction. Biased with REF_BIAS. */
+  GCRef nextgc;
 #if LJ_GC64
   uint32_t unused_gc64;
 #endif
-  GCRef gclist;
   IRIns *ir;		/* IR instructions/constants. Biased with REF_BIAS. */
+  GCRef gclist;
   IRRef nk;		/* Lowest IR constant. Biased with REF_BIAS. */
   uint32_t nsnapmap;	/* Number of snapshot map elements. */
   SnapShot *snap;	/* Snapshot array. */
@@ -298,6 +299,7 @@ typedef struct GCtrace {
   check_exp((n)>0 && (MSize)(n)<J->sizetrace, (GCtrace *)gcref(J->trace[(n)]))
 
 LJ_STATIC_ASSERT(offsetof(GChead, gclist) == offsetof(GCtrace, gclist));
+LJ_STATIC_ASSERT(offsetof(GChead, nextgc) == offsetof(GCtrace, nextgc));
 
 static LJ_AINLINE MSize snap_nextofs(GCtrace *T, SnapShot *snap)
 {
@@ -359,14 +361,10 @@ enum {
 
 enum {
 #if LJ_TARGET_X86ORX64
+  LJ_K64_2P32,		/* 2^32 */
   LJ_K64_TOBIT,		/* 2^52 + 2^51 */
   LJ_K64_2P64,		/* 2^64 */
   LJ_K64_M2P64,		/* -2^64 */
-#if LJ_32
-  LJ_K64_M2P64_31,	/* -2^64 or -2^31 */
-#else
-  LJ_K64_M2P64_31 = LJ_K64_M2P64,
-#endif
 #endif
 #if LJ_TARGET_MIPS
   LJ_K64_2P31,		/* 2^31 */
@@ -381,7 +379,8 @@ enum {
 
 enum {
 #if LJ_TARGET_X86ORX64
-  LJ_K32_M2P64_31,	/* -2^64 or -2^31 */
+  LJ_K32_2P32,		/* 2^32 */
+  LJ_K32_2P64,		/* 2^64 */
 #endif
 #if LJ_TARGET_PPC
   LJ_K32_2P52_2P31,	/* 2^52 + 2^31 */

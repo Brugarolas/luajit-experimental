@@ -75,8 +75,7 @@ void LJ_FASTCALL lj_ir_growtop(jit_State *J)
   IRIns *baseir = J->irbuf + J->irbotlim;
   MSize szins = J->irtoplim - J->irbotlim;
   if (szins) {
-    baseir = (IRIns *)lj_mem_realloc(J->L, baseir, szins*sizeof(IRIns),
-				     2*szins*sizeof(IRIns));
+    baseir = (IRIns *)lj_mem_realloc(J->L, baseir, szins*sizeof(IRIns), 2*szins*sizeof(IRIns));
     J->irtoplim = J->irbotlim + 2*szins;
   } else {
     baseir = (IRIns *)lj_mem_realloc(J->L, NULL, 0, LJ_MIN_IRSZ*sizeof(IRIns));
@@ -92,8 +91,7 @@ static void lj_ir_growbot(jit_State *J)
   IRIns *baseir = J->irbuf + J->irbotlim;
   MSize szins = J->irtoplim - J->irbotlim;
   lj_assertJ(szins != 0, "zero IR size");
-  lj_assertJ(J->cur.nk == J->irbotlim || J->cur.nk-1 == J->irbotlim,
-	     "unexpected IR growth");
+  lj_assertJ(J->cur.nk == J->irbotlim || J->cur.nk-1 == J->irbotlim, "unexpected IR growth");
   if (J->cur.nins + (szins >> 1) < J->irtoplim) {
     /* More than half of the buffer is free on top: shift up by a quarter. */
     MSize ofs = szins >> 2;
@@ -152,8 +150,7 @@ TRef lj_ir_ggfload(jit_State *J, IRType t, uintptr_t ofs)
 {
   lj_assertJ((ofs & 3) == 0, "unaligned GG_State field offset");
   ofs >>= 2;
-  lj_assertJ(ofs >= IRFL__MAX && ofs <= 0x3ff,
-	     "GG_State field offset breaks 10 bit FOLD key limit");
+  lj_assertJ(ofs >= IRFL__MAX && ofs <= 0x3ff, "GG_State field offset breaks 10 bit FOLD key limit");
   lj_ir_set(J, IRT(IR_FLOAD, t), REF_NIL, ofs);
   return lj_opt_fold(J);
 }
@@ -258,7 +255,7 @@ static int numistrueint(lua_Number n, int32_t *kp)
       TValue tv;
       setnumV(&tv, n);
       if (tv.u32.hi != 0)
-	return 0;
+	      return 0;
     }
     return 1;
   }
@@ -280,7 +277,7 @@ TRef lj_ir_kgc(jit_State *J, GCobj *o, IRType t)
 {
   IRIns *ir, *cir = J->cur.ir;
   IRRef ref;
-  lj_assertJ(!isdead(J2G(J), o), "interning of dead GC object");
+  lj_assertJ(!checkdead(J2G(J), o), "interning of dead GC object");
   for (ref = J->chain[IR_KGC]; ref; ref = cir[ref].prev)
     if (ir_kgc(&cir[ref]) == o)
       goto found;
@@ -363,8 +360,7 @@ TRef lj_ir_kslot(jit_State *J, TRef key, IRRef slot)
   IRRef2 op12 = IRREF2((IRRef1)key, (IRRef1)slot);
   IRRef ref;
   /* Const part is not touched by CSE/DCE, so 0-65535 is ok for IRMlit here. */
-  lj_assertJ(tref_isk(key) && slot == (IRRef)(IRRef1)slot,
-	     "out-of-range key/slot");
+  lj_assertJ(tref_isk(key) && slot == (IRRef)(IRRef1)slot, "out-of-range key/slot");
   for (ref = J->chain[IR_KSLOT]; ref; ref = cir[ref].prev)
     if (cir[ref].op12 == op12)
       goto found;

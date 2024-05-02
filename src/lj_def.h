@@ -55,11 +55,13 @@ typedef unsigned int uintptr_t;
 #define LJ_MAX_BUF	LJ_MAX_MEM32	/* Max. buffer length. */
 #define LJ_MAX_UDATA	LJ_MAX_MEM32	/* Max. userdata length. */
 
-#define LJ_MAX_STRTAB	(1<<26)		/* Max. string table size. */
+#define LJ_MAX_STRTAB	(1<<22)		/* Max. string table size. */
 #define LJ_MAX_HBITS	26		/* Max. hash bits. */
 #define LJ_MAX_ABITS	28		/* Max. bits of array key. */
 #define LJ_MAX_ASIZE	((1<<(LJ_MAX_ABITS-1))+1)  /* Max. array part size. */
-#define LJ_MAX_COLOSIZE	16		/* Max. elems for colocated array. */
+#define LJ_MAX_COLOSIZE	0		/* Max. elems for colocated array. */
+#define LJ_COLO_ENABLED 1
+#define LJ_HUGE_STR_THRESHOLD 4000
 
 #define LJ_MAX_LINE	LJ_MAX_MEM32	/* Max. source code line number. */
 #define LJ_MAX_XLEVEL	200		/* Max. syntactic nesting level. */
@@ -76,7 +78,7 @@ typedef unsigned int uintptr_t;
 /* Minimum table/buffer sizes. */
 #define LJ_MIN_GLOBAL	6		/* Min. global table size (hbits). */
 #define LJ_MIN_REGISTRY	2		/* Min. registry size (hbits). */
-#define LJ_MIN_STRTAB	256		/* Min. string table size (pow2). */
+#define LJ_MIN_STRTAB	64		/* Min. string table size (pow2). */
 #define LJ_MIN_SBUF	32		/* Min. string buffer length. */
 #define LJ_MIN_VECSZ	8		/* Min. size for growable vectors. */
 #define LJ_MIN_IRSZ	32		/* Min. size for growable IR. */
@@ -118,14 +120,14 @@ typedef uintptr_t BloomFilter;
 #define BLOOM_MASK	(8*sizeof(BloomFilter) - 1)
 #define bloombit(x)	((uintptr_t)1 << ((x) & BLOOM_MASK))
 #define bloomset(b, x)	((b) |= bloombit((x)))
-#define bloomtest(b, x)	((b) & bloombit((x)))
+#define bloomtest(b, x)	((b)  & bloombit((x)))
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__psp2__)
 
-#define LJ_NORET	__attribute__((noreturn))
-#define LJ_ALIGN(n)	__attribute__((aligned(n)))
-#define LJ_INLINE	inline
-#define LJ_AINLINE	inline __attribute__((always_inline))
+#define LJ_NORET    __attribute__((noreturn))
+#define LJ_ALIGN(n) __attribute__((aligned(n)))
+#define LJ_INLINE   inline
+#define LJ_AINLINE  inline __attribute__((always_inline))
 #define LJ_NOINLINE	__attribute__((noinline))
 
 #if defined(__ELF__) || defined(__MACH__) || defined(__psp2__)
@@ -142,12 +144,12 @@ typedef uintptr_t BloomFilter;
 #define LJ_FASTCALL	__attribute__((fastcall))
 #endif
 
-#define LJ_LIKELY(x)	__builtin_expect(!!(x), 1)
-#define LJ_UNLIKELY(x)	__builtin_expect(!!(x), 0)
+#define LJ_LIKELY(x)   __builtin_expect(!!(x), 1)
+#define LJ_UNLIKELY(x) __builtin_expect(!!(x), 0)
 
-#define lj_ffs(x)	((uint32_t)__builtin_ctz(x))
-#define lj_fls(x)	((uint32_t)(__builtin_clz(x)^31))
-#define lj_ffs64(x)	((uint32_t)__builtin_ctzll(x))
+#define lj_ffs(x)   ((uint32_t) __builtin_ctz(x))
+#define lj_fls(x)   ((uint32_t)(__builtin_clz(x)^31))
+#define lj_ffs64(x)	((uint32_t) __builtin_ctzll(x))
 #define lj_fls64(x)	((uint32_t)(__builtin_clzll(x)^63))
 
 #if defined(__arm__)

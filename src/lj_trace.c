@@ -130,7 +130,7 @@ GCtrace * LJ_FASTCALL lj_trace_alloc(lua_State *L, GCtrace *T)
   GCtrace *T2 = lj_mem_newt(L, (MSize)sz, GCtrace);
   char *p = (char *)T2 + sztr;
   T2->gct = ~LJ_TTRACE;
-  T2->marked = 0;
+  T2->gcflags = 0;
   T2->traceno = 0;
   T2->ir = (IRIns *)p - T->nk;
   T2->nins = T->nins;
@@ -150,7 +150,7 @@ static void trace_save(jit_State *J, GCtrace *T)
   memcpy(T, &J->cur, sizeof(GCtrace));
   setgcrefr(T->nextgc, J2G(J)->gc.root);
   setgcrefp(J2G(J)->gc.root, T);
-  newwhite(J2G(J), T);
+  newwhite(T);
   T->gct = ~LJ_TTRACE;
   T->ir = (IRIns *)p - J->cur.nk;  /* The IR has already been copied above. */
 #if LJ_ABI_PAUTH
@@ -325,12 +325,11 @@ void lj_trace_initstate(global_State *g)
 
   /* Initialize 32/64 bit constants. */
 #if LJ_TARGET_X86ORX64
+  J->k64[LJ_K64_2P32].u64 = U64x(41f00000,00000000);
   J->k64[LJ_K64_TOBIT].u64 = U64x(43380000,00000000);
-#if LJ_32
-  J->k64[LJ_K64_M2P64_31].u64 = U64x(c1e00000,00000000);
-#endif
   J->k64[LJ_K64_2P64].u64 = U64x(43f00000,00000000);
-  J->k32[LJ_K32_M2P64_31] = LJ_64 ? 0xdf800000 : 0xcf000000;
+  J->k32[LJ_K32_2P64] = 0x5f800000;
+  J->k32[LJ_K32_2P32] = 0x4f800000;
 #endif
 #if LJ_TARGET_X86ORX64 || LJ_TARGET_MIPS64
   J->k64[LJ_K64_M2P64].u64 = U64x(c3f00000,00000000);
