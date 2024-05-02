@@ -12,6 +12,7 @@
 #include "lj_str.h"
 #include "lj_char.h"
 #include "lj_prng.h"
+#include "lj_arch.h"
 #include "lj_intrin.h"
 
 /* -- String helpers ------------------------------------------------------ */
@@ -98,8 +99,7 @@ static StrHash hash_sparse(uint64_t seed, const char *str, MSize len)
 
 #if LUAJIT_SECURITY_STRHASH
 /* Keyed dense ARX string hash. Linear time. */
-static LJ_NOINLINE StrHash hash_dense(uint64_t seed, StrHash h,
-				      const char *str, MSize len)
+static LJ_NOINLINE StrHash hash_dense(uint64_t seed, StrHash h, const char *str, MSize len)
 {
   StrHash b = lj_bswap(lj_rol(h ^ (StrHash)(seed >> 32), 4));
   if (len > 12) {
@@ -129,24 +129,37 @@ static LJ_NOINLINE StrHash hash_dense(uint64_t seed, StrHash h,
 
 static uint32_t lj_str_get_free(StrTab *st)
 {
-#if LJ_64
-  I256 a, b, c, d, z;
-  uint32_t t1, t2;
-  I256_ZERO(z);
-  I256_LOADA(a, &st->strs[0]);
-  I256_LOADA(b, &st->strs[4]);
-  I256_LOADA(c, &st->strs[8]);
-  I256_LOADA(d, &st->strs[12]);
-  t1 = I256_EQ_64_MASK(a, z) | (I256_EQ_64_MASK(b, z) << 4);
-  t2 = (I256_EQ_64_MASK(c, z) << 8) | (I256_EQ_64_MASK(d, z) << 12);
-  return t1 | t2;
-#else
-  I256 x, z;
-  I256_LOADA(x, &st->strs[0]);
-  ret = I256_EQ_64_MASK(x, z);
-  I256_LOADA(x, &st->strs[8]);
-  return ret | I256_EQ_64_MASK(x, z) << 8;
-#endif
+    _simd_default_type a, b, c, d, z;
+    uint32_t t1, t2;
+    _simd_zero(z);  // Set zero vector
+
+    #if SIMD_BITS == 256  // Check if we are using 256-bit SIMD
+        _simd_loada(a, &st->strs[0]);
+        _simd_loada(b, &st->strs[4]);
+        _simd_loada(c, &st->strs[8]);
+        _simd_loada(d, &st->strs[12]);
+        t1 = _simd_eq64_mask(a, z) | (_simd_eq64_mask(b, z) << 4);
+        t2 = (_simd_eq64_mask(c, z) << 8) | (_simd_eq64_mask(d, z) << 12);
+    #elif SIMD_BITS == 128  // Adjust for 128-bit SIMD (e.g., ARM Neon)
+        _simd_loada(a, &st->strs[0]);
+        _simd_loada(b, &st->strs[2]);
+        _simd_loada(c, &st->strs[4]);
+        _simd_loada(d, &st->strs[6]);
+        uint32_t t3, t4;
+        t1 = _simd_eq64_mask(a, z) | (_simd_eq64_mask(b, z) << 2);
+        t2 = (_simd_eq64_mask(c, z) << 4) | (_simd_eq64_mask(d, z) << 6);
+        _simd_loada(a, &st->strs[8]);
+        _simd_loada(b, &st->strs[10]);
+        _simd_loada(c, &st->strs[12]);
+        _simd_loada(d, &st->strs[14]);
+        t3 = _simd_eq64_mask(a, z) << 8 | (_simd_eq64_mask(b, z) << 10);
+        t4 = (_simd_eq64_mask(c, z) << 12) | (_simd_eq64_mask(d, z) << 14);
+    return t1 | t2 | t3 | t4;
+    #else
+        // TODO: Fallback or scalar implementation
+    #endif
+
+  return t1 | t2;  // Combine results for 256-bit SIMD path
 }
 
 static void lj_str_insert(lua_State *L, GCstr *s, StrHash hash, int hashalg)
@@ -234,19 +247,17 @@ void lj_str_resize(lua_State *L, MSize newmask)
       do {
         for (j = 0; j < 15; j++) {
           GCstr *s = st_ref(tab->strs[j]);
-          MSize hash = st_alg(tab->strs[j])
-                           ? hash_sparse(g->str.seed, strdata(s), s->len)
-                           : tab->hashes[j];
+          MSize hash = st_alg(tab->strs[j]) ? hash_sparse(g->str.seed, strdata(s), s->len) : tab->hashes[j];
           newtab[hash & newmask].prev_len++;
         }
         tab = tab->next;
       } while (tab);
     }
+
     /* Mark secondary chains. */
     for (i = newmask; i != ~(MSize)0; i--) {
       StrTab *tab = (StrTab *)&newtab[i];
-      tab->prev_len =
-          (tab->prev_len > LJ_STR_MAXCOLL * 15) ? LJ_STR_SECONDARY : 0;
+      tab->prev_len = (tab->prev_len > LJ_STR_MAXCOLL * 15) ? LJ_STR_SECONDARY : 0;
       newsecond |= tab->prev_len;
     }
     g->str.second = newsecond;
@@ -280,8 +291,7 @@ void lj_str_resize(lua_State *L, MSize newmask)
 
 #if LUAJIT_SECURITY_STRHASH
 /* Rehash and rechain all strings in a chain. */
-static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
-					      const char *str, MSize len)
+static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc, const char *str, MSize len)
 {
   global_State *g = G(L);
   MSize strmask = g->str.mask;
@@ -299,9 +309,7 @@ static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
         if (s) {
           setgcrefnull(tab->strs[i]);
           tab->prev_len--;
-          lj_str_insert(
-              L, s, hash_dense(g->str.seed, tab->hashes[i], strdata(s), s->len),
-              1);
+          lj_str_insert(L, s, hash_dense(g->str.seed, tab->hashes[i], strdata(s), s->len), 1);
         }
       }
     }
@@ -326,8 +334,7 @@ static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
 #endif
 
 /* Allocate a new string and add to string interning table. */
-static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
-			   StrHash hash, int hashalg)
+static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len, StrHash hash, int hashalg)
 {
   GCstr *s = lj_mem_allocstr(L, len);
   global_State *g = G(L);
@@ -360,62 +367,66 @@ static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
 /* Intern a string and return string object. */
 GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
 {
-  global_State *g = G(L);
-  if (lenx-1 < LJ_MAX_STR-1) {
-    I256 h0, h1, cmp;
-    MSize len = (MSize)lenx;
-    StrHash hash = hash_sparse(g->str.seed, str, len);
-    MSize coll = 0;
-    uint32_t chain = 0;
-    int hashalg = 0;
-    /* Check if the string has already been interned. */
-    StrTab *st = &mref(g->str.tab, StrTab)[hash & g->str.mask];
-    StrTab *root;
-#if LUAJIT_SECURITY_STRHASH
-    if (LJ_UNLIKELY(st->prev_len & LJ_STR_SECONDARY)) {  /* Secondary hash for this chain? */
-      hashalg = 1;
-      hash = hash_dense(g->str.seed, hash, str, len);
-      st = &mref(g->str.tab, StrTab)[hash & g->str.mask];
-    }
-#endif
-    root = st;
-    I256_BCAST_32(cmp, hash);
-    do {
-      I256_LOADA(h0, &st->hashes[0]);
-      I256_LOADA(h1, &st->hashes[8]);
-      uint32_t eq = (I256_EQ_32_MASK(h0, cmp) | ((I256_EQ_32_MASK(h1, cmp) & 0x7F) << 8));
+    global_State *g = G(L);
+    if (lenx - 1 < LJ_MAX_STR - 1) {
+        _simd_default_type h0, h1, cmp;
+        MSize len = (MSize)lenx;
+        StrHash hash = hash_sparse(g->str.seed, str, len);
+        MSize coll = 0;
+        uint32_t chain = 0;
+        int hashalg = 0;
+        /* Check if the string has already been interned. */
+        StrTab *st = &mref(g->str.tab, StrTab)[hash & g->str.mask];
+        StrTab *root;
 
-      while (eq != 0) {
-        GCstr *sx = st_ref(st->strs[tzcount32(eq)]);
-        eq = reset_lowest32(eq);
-        if (LJ_UNLIKELY(!sx))
-          continue;
-        if (len == sx->len && memcmp(str, strdata(sx), len) == 0) {
-          maybe_resurrect_str(g, sx);
-          return sx;  /* Return existing string. */
-        }
-        coll++;
-      }
-      chain++;
-      st = st->next;
-    } while (st != NULL);
-    if(LJ_UNLIKELY(chain > 0x3FFFFFF))
-        chain = 0x3FFFFFF;
-    root->prev_len = (root->prev_len & 0x1F) | (chain << 5);
-#if LUAJIT_SECURITY_STRHASH
-    /* Rehash chain if there are too many collisions. */
-    if (LJ_UNLIKELY(coll > LJ_STR_MAXCOLL) && !hashalg) {
-      return lj_str_rehash_chain(L, hash, str, len);
-    }
-#endif
-    /* Otherwise allocate a new string. */
+        #if LUAJIT_SECURITY_STRHASH
+            if (LJ_UNLIKELY(st->prev_len & LJ_STR_SECONDARY)) {  /* Secondary hash for this chain? */
+                hashalg = 1;
+                hash = hash_dense(g->str.seed, hash, str, len);
+                st = &mref(g->str.tab, StrTab)[hash & g->str.mask];
+            }
+        #endif
 
-    return lj_str_alloc(L, str, len, hash, hashalg);
-  } else {
-    if (lenx)
-      lj_err_msg(L, LJ_ERR_STROV);
-    return g->strempty;
-  }
+        root = st;
+        _simd_bcast32(cmp, hash);
+
+        do {
+            _simd_loada(h0, &st->hashes[0]);
+            _simd_loada(h1, &st->hashes[8]);
+            uint32_t eq = (_simd_eq32_mask(h0, cmp) | ((_simd_eq32_mask(h1, cmp) & 0x7F) << 8));
+
+            while (eq != 0) {
+                GCstr *sx = st_ref(st->strs[tzcount32(eq)]);
+                eq = reset_lowest32(eq);
+                if (LJ_UNLIKELY(!sx))
+                    continue;
+                if (len == sx->len && memcmp(str, strdata(sx), len) == 0) {
+                    maybe_resurrect_str(g, sx);
+                    return sx;  /* Return existing string. */
+                }
+                coll++;
+            }
+            chain++;
+            st = st->next;
+        } while (st != NULL);
+        if(LJ_UNLIKELY(chain > 0x3FFFFFF))
+            chain = 0x3FFFFFF;
+        root->prev_len = (root->prev_len & 0x1F) | (chain << 5);
+
+        #if LUAJIT_SECURITY_STRHASH
+            /* Rehash chain if there are too many collisions. */
+            if (LJ_UNLIKELY(coll > LJ_STR_MAXCOLL) && !hashalg) {
+                return lj_str_rehash_chain(L, hash, str, len);
+            }
+        #endif
+
+        /* Otherwise allocate a new string. */
+        return lj_str_alloc(L, str, len, hash, hashalg);
+    } else {
+        if (lenx)
+            lj_err_msg(L, LJ_ERR_STROV);
+        return g->strempty;
+    }
 }
 
 void LJ_FASTCALL lj_str_init(lua_State *L)

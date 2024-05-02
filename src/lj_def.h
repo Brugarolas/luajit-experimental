@@ -120,14 +120,14 @@ typedef uintptr_t BloomFilter;
 #define BLOOM_MASK	(8*sizeof(BloomFilter) - 1)
 #define bloombit(x)	((uintptr_t)1 << ((x) & BLOOM_MASK))
 #define bloomset(b, x)	((b) |= bloombit((x)))
-#define bloomtest(b, x)	((b) & bloombit((x)))
+#define bloomtest(b, x)	((b)  & bloombit((x)))
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__psp2__)
 
-#define LJ_NORET	__attribute__((noreturn))
-#define LJ_ALIGN(n)	__attribute__((aligned(n)))
-#define LJ_INLINE	inline
-#define LJ_AINLINE	inline __attribute__((always_inline))
+#define LJ_NORET    __attribute__((noreturn))
+#define LJ_ALIGN(n) __attribute__((aligned(n)))
+#define LJ_INLINE   inline
+#define LJ_AINLINE  inline __attribute__((always_inline))
 #define LJ_NOINLINE	__attribute__((noinline))
 
 #if defined(__ELF__) || defined(__MACH__) || defined(__psp2__)
@@ -144,12 +144,12 @@ typedef uintptr_t BloomFilter;
 #define LJ_FASTCALL	__attribute__((fastcall))
 #endif
 
-#define LJ_LIKELY(x)	__builtin_expect(!!(x), 1)
-#define LJ_UNLIKELY(x)	__builtin_expect(!!(x), 0)
+#define LJ_LIKELY(x)   __builtin_expect(!!(x), 1)
+#define LJ_UNLIKELY(x) __builtin_expect(!!(x), 0)
 
-#define lj_ffs(x)	((uint32_t)__builtin_ctz(x))
-#define lj_fls(x)	((uint32_t)(__builtin_clz(x)^31))
-#define lj_ffs64(x)	((uint32_t)__builtin_ctzll(x))
+#define lj_ffs(x)   ((uint32_t) __builtin_ctz(x))
+#define lj_fls(x)   ((uint32_t)(__builtin_clz(x)^31))
+#define lj_ffs64(x)	((uint32_t) __builtin_ctzll(x))
 #define lj_fls64(x)	((uint32_t)(__builtin_clzll(x)^63))
 
 #if defined(__arm__)

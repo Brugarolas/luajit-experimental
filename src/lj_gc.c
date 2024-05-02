@@ -28,6 +28,7 @@
 #include "lj_dispatch.h"
 #include "lj_vm.h"
 #include "lj_vmevent.h"
+#include "lj_arch.h"
 #include "lj_intrin.h"
 
 #define GCSTEPSIZE	1024u
@@ -36,13 +37,11 @@
 #define GCFINALIZECOST	100
 
 /* Macros to set GCobj colors and flags. */
-#define white2gray(x)		((x)->gch.gcflags |= (uint8_t)LJ_GC_GRAY)
-#define gray2black(g, x)                                                       \
-  ((x)->gch.gcflags = (((x)->gch.gcflags & (uint8_t)~LJ_GC_COLORS) | (g)->gc.currentblack))
+#define white2gray(x)		  ((x)->gch.gcflags |= (uint8_t)LJ_GC_GRAY)
+#define gray2black(g, x)  ((x)->gch.gcflags = (((x)->gch.gcflags & (uint8_t)~LJ_GC_COLORS) | (g)->gc.currentblack))
 #define isfinalized(u)		((u)->gcflags & LJ_GC_FINALIZED)
 
-#define lj_huge_str_size(len) \
-  len + 1 + offsetof(GCAstr, mark[2]) + sizeof(GCstr)
+#define lj_huge_str_size(len) len + 1 + offsetof(GCAstr, mark[2]) + sizeof(GCstr)
 
 /* -- Mark phase ---------------------------------------------------------- */
 
@@ -58,15 +57,13 @@
   } while (0)
 
 /* Mark a TValue (if needed). */
-#define gc_marktv(g, tv) \
-  { lj_assertG(!tvisgcv(tv) || (~itype(tv) == gcval(tv)->gch.gct), \
-	       "TValue and GC type mismatch %d vs %d", ~itype(tv),             \
-               gcval(tv)->gch.gct); \
-    if (tviswhite(g, tv)) gc_mark_type(g, gcV(tv), ~itype(tv)); }
+#define gc_marktv(g, tv) { \
+    lj_assertG(!tvisgcv(tv) || (~itype(tv) == gcval(tv)->gch.gct), "TValue and GC type mismatch %d vs %d", ~itype(tv), gcval(tv)->gch.gct); \
+    if (tviswhite(g, tv)) gc_mark_type(g, gcV(tv), ~itype(tv)); \
+}
 
 /* Mark a GCobj (if needed). */
-#define gc_markobj(g, o) \
-  { if (iswhite(g, obj2gco(o))) gc_mark_type(g, obj2gco(o), obj2gco(o)->gch.gct); }
+#define gc_markobj(g, o) { if (iswhite(g, obj2gco(o))) gc_mark_type(g, obj2gco(o), obj2gco(o)->gch.gct); }
 
 /* Mark a string object. */
 #define gc_mark_str(g, s)		((s)->gcflags |= (g)->gc.currentblack)
@@ -134,8 +131,7 @@ const uint32_t kDividers[~LJ_TNUMX] = {
 /* Mark a white GCobj. */
 static void gc_mark_type(global_State *g, GCobj *o, int gct)
 {
-  lj_assertG(gct == o->gch.gct, "GC type mismatch obj %d / param %d",
-             o->gch.gct, gct);
+  lj_assertG(gct == o->gch.gct, "GC type mismatch obj %d / param %d", o->gch.gct, gct);
   if (gct == ~LJ_TSTR) {
     /* There is a choice, we can either modify the object here, or we can
      * put it on the gray queue and process it normally. If we mark it black
@@ -160,11 +156,8 @@ static void gc_mark_type(global_State *g, GCobj *o, int gct)
     uint64_t bit = 1ull << aidxl(idx);
     lj_assertG(idx <= ARENA_SIZE / 16, "index out of range");
     lj_assertG(idx == objmask(o) / kDividers[gct], "bad divider!");
-    lj_assertG(!((((uintptr_t)(o)&ARENA_OMASK) % (uintptr_t)(kDividers[gct]))),
-               "index not multiple of divisor!");
-    lj_assertG(gct == ~LJ_TUPVAL || gct == ~LJ_TSTR || gct == ~LJ_TFUNC ||
-                   gct == ~LJ_TTAB || gct == ~LJ_TUDATA,
-               "bad GC type %d", gct);
+    lj_assertG(!((((uintptr_t)(o)&ARENA_OMASK) % (uintptr_t)(kDividers[gct]))), "index not multiple of divisor!");
+    lj_assertG(gct == ~LJ_TUPVAL || gct == ~LJ_TSTR || gct == ~LJ_TFUNC || gct == ~LJ_TTAB || gct == ~LJ_TUDATA, "bad GC type %d", gct);
     if (!(a->mark[h] & bit)) {
       if (!a->gray_h) {
         gray_enq(a, g);
@@ -179,8 +172,7 @@ static void gc_mark_type(global_State *g, GCobj *o, int gct)
   lj_assertG(!checkdead(g, o), "mark of dead object");
   white2gray(o);
   if (gct != ~LJ_TCDATA) {
-    lj_assertG(gct == ~LJ_TTHREAD || gct == ~LJ_TPROTO ||
-               gct == ~LJ_TTRACE, "bad GC type %d", gct);
+    lj_assertG(gct == ~LJ_TTHREAD || gct == ~LJ_TPROTO || gct == ~LJ_TTRACE, "bad GC type %d", gct);
     lj_assertG(o->gch.gcflags & LJ_GC_GRAY, "not gray?");
     setgcrefr(o->gch.gclist, g->gc.gray);
     setgcref(g->gc.gray, o);
@@ -193,9 +185,7 @@ static void gc_mark_uv(global_State *g, GCupval *o)
   uint32_t idx = aidx(o);
   uint32_t h = aidxh(idx);
   uint64_t bit = 1ull << aidxl(idx);
-  lj_assertG(idx >= ELEMENTS_OCCUPIED(GCAupval, GCupval) &&
-                 idx < ELEMENTS_MAX(GCupval),
-             "bad obj pointer");
+  lj_assertG(idx >= ELEMENTS_OCCUPIED(GCAupval, GCupval) && idx < ELEMENTS_MAX(GCupval), "bad obj pointer");
   lj_assertG(~LJ_TUPVAL == o->gct, "not a upval");
   if (!(a->mark[h] & bit)) {
     if (!a->gray_h) {
@@ -213,9 +203,7 @@ static void gc_mark_tab(global_State *g, GCtab *o)
   uint32_t idx = aidx(o);
   uint32_t h = aidxh(idx);
   uint64_t bit = 1ull << aidxl(idx);
-  lj_assertG(idx >= ELEMENTS_OCCUPIED(GCAtab, GCtab) &&
-                 idx < ELEMENTS_MAX(GCtab),
-             "bad obj pointer");
+  lj_assertG(idx >= ELEMENTS_OCCUPIED(GCAtab, GCtab) && idx < ELEMENTS_MAX(GCtab), "bad obj pointer");
   lj_assertG(~LJ_TTAB == o->gct, "not a table");
   if (!(a->mark[h] & bit)) {
     if (!a->gray_h) {
@@ -461,8 +449,7 @@ static void gc_traverse_thread(global_State *g, lua_State *th)
 static size_t traverse_upvals(global_State *g, GCAupval *a, size_t threshold)
 {
   size_t ret = 0;
-  for (uint32_t i = tzcount64(a->gray_h); a->gray_h;
-       a->gray_h = reset_lowest64(a->gray_h), i = tzcount64(a->gray_h)) {
+  for (uint32_t i = tzcount64(a->gray_h); a->gray_h; a->gray_h = reset_lowest64(a->gray_h), i = tzcount64(a->gray_h)) {
     /* It is not allowed to synchronously change a->gray[i] */
     uint64_t v = a->gray[i];
     while(v) {
@@ -485,15 +472,13 @@ static size_t traverse_upvals(global_State *g, GCAupval *a, size_t threshold)
 static size_t traverse_funcs(global_State *g, GCAfunc *a, size_t threshold)
 {
   size_t ret = 0;
-  for (uint32_t i = tzcount64(a->gray_h); a->gray_h;
-       a->gray_h = reset_lowest64(a->gray_h), i = tzcount64(a->gray_h)) {
+  for (uint32_t i = tzcount64(a->gray_h); a->gray_h; a->gray_h = reset_lowest64(a->gray_h), i = tzcount64(a->gray_h)) {
     /* It is not allowed to synchronously change a->gray[i] */
     uint64_t v = a->gray[i];
     while (v) {
       uint32_t j = tzcount64(v);
       GCfunc *fn = aobj(a, GCfunc, (i << 6) + j);
-      MSize size = isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues)
-                                 : sizeCfunc((MSize)fn->c.nupvalues);
+      MSize size = isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues) : sizeCfunc((MSize)fn->c.nupvalues);
       gray2black(g, obj2gco(fn));
       if (!(fn->gen.gcflags & LJ_GC_MARK_MASK)) {
         maybe_mark_blob(g, mrefu(fn->gen.data), size);
@@ -521,8 +506,7 @@ static size_t traverse_tables(global_State *g, GCAtab *a, size_t threshold)
    * bits in the current or previous words. */
   while (a->gray_h) {
     uint32_t i = tzcount64(a->gray_h);
-    for (uint32_t j = tzcount64(a->gray[i]); a->gray[i];
-         j = tzcount64(a->gray[i])) {
+    for (uint32_t j = tzcount64(a->gray[i]); a->gray[i]; j = tzcount64(a->gray[i])) {
       GCtab *t = aobj(a, GCtab, (i << 6) + j);
       gray2black(g, obj2gco(t));
       a->gray[i] = reset_lowest64(a->gray[i]);
@@ -548,8 +532,7 @@ static size_t traverse_tables(global_State *g, GCAtab *a, size_t threshold)
 static size_t traverse_udata(global_State *g, GCAudata *a, size_t threshold)
 {
   size_t ret = 0;
-  for (uint32_t i = tzcount64(a->gray_h); a->gray_h;
-       a->gray_h = reset_lowest64(a->gray_h), i = tzcount64(a->gray_h)) {
+  for (uint32_t i = tzcount64(a->gray_h); a->gray_h; a->gray_h = reset_lowest64(a->gray_h), i = tzcount64(a->gray_h)) {
     /* It is not allowed to synchronously change a->gray[i] */
     uint64_t v = a->gray[i];
     while (v) {
@@ -635,8 +618,7 @@ static size_t propagatemark(global_State *g)
 #if LJ_HASJIT
     GCtrace *T = gco2trace(o);
     gc_traverse_trace(g, T);
-    return ((sizeof(GCtrace) + 7) & ~7) + (T->nins - T->nk) * sizeof(IRIns) +
-           T->nsnap * sizeof(SnapShot) + T->nsnapmap * sizeof(SnapEntry);
+    return ((sizeof(GCtrace) + 7) & ~7) + (T->nins - T->nk) * sizeof(IRIns) + T->nsnap * sizeof(SnapShot) + T->nsnapmap * sizeof(SnapEntry);
 #else
     lj_assertG(0, "bad GC type %d", gct);
     return 0;
@@ -665,28 +647,28 @@ static void sweep_upvals(global_State *g)
 
 static void propagatemark_again(global_State *g)
 {
-  for (GCobj *o = gcref(g->gc.grayagain); o;) {
-    GCobj *n = gcref(o->gch.gclist);
+  for (GCobj *o1 = gcref(g->gc.grayagain); o1;) {
+    GCobj *n = gcref(o1->gch.gclist);
     int x;
     lj_assertG(isgray(o), "propagation of non-gray object");
-    gray2black(g, o);
-    x = gc_traverse_tab(g, gco2tab(o));
+    gray2black(g, o1);
+    x = gc_traverse_tab(g, gco2tab(o1));
     if(x > 0) {
       lj_assertG(o->gch.gcflags & LJ_GC_WEAK, "no weak flags");
       if (x == LJ_GC_WEAKKEY) {
-        setgcrefr(o->gch.gclist, g->gc.ephemeron);
-        setgcref(g->gc.ephemeron, o);
+        setgcrefr(o1->gch.gclist, g->gc.ephemeron);
+        setgcref(g->gc.ephemeron, o1);
       } else {
-        setgcrefr(o->gch.gclist, g->gc.weak);
-        setgcref(g->gc.weak, o);
+        setgcrefr(o1->gch.gclist, g->gc.weak);
+        setgcref(g->gc.weak, o1);
       }
     }
-    o = n;
+    o1 = n;
   }
 
-  for (GCobj *o = gcref(g->gc.grayagain_th); o; o = gcref(o->gch.gclist)) {
-    gray2black(g, o);
-    gc_traverse_thread(g, gco2th(o));
+  for (GCobj *o2 = gcref(g->gc.grayagain_th); o2; o2 = gcref(o2->gch.gclist)) {
+    gray2black(g, o2);
+    gc_traverse_thread(g, gco2th(o2));
   }
 }
 
@@ -817,7 +799,7 @@ static void gc_free_arena(global_State *g, GCArenaHdr *a)
  * and can never be put on the freelist or released */
 #define sweep_free(atype, src, freevar, cond, ...)                             \
   if (LJ_LIKELY(g->gc.src != &a->hdr)) {                                       \
-    if (LJ_UNLIKELY(I256_EQ_64_MASK(any, zero) == 0xF)) {                      \
+    if (LJ_UNLIKELY(_simd_eq64_mask(any, zero) == 0xF)) {                      \
       GCArenaHdr *x = &a->hdr;                                                 \
       a = (atype *)a->hdr.next;                                                \
       if (x == g->gc.freevar) {                                                \
@@ -832,107 +814,104 @@ static void gc_free_arena(global_State *g, GCArenaHdr *a)
     }                                                                          \
   }
 
-/* This is pipelined, while a is processing the branchy fixup & free code
- * b is running the SIMD crunchy code. */
-static void *gc_sweep_tab_i256(global_State *g, GCAtab *a, uint32_t lim)
+static void *gc_sweep_tab_simd(global_State *g, GCAtab *a, uint32_t lim)
 {
-  GCAtab *b;
-  I256 v, v2;
-  I256 any, any2;
-  I256 zero;
-  I256 ones;
-  I256_ZERO(any);
-  I256_ZERO(zero);
-  I256_ONES(ones);
-  uint64_t free = ~0ull;
-  uint64_t free2;
+    GCAtab *b;
+    _simd_default_type v, v2;
+    _simd_default_type any, any2;
+    _simd_default_type zero;
+    _simd_default_type ones;
+    _simd_zero(any);
+    _simd_zero(zero);
+    _simd_ones(ones);
+    uint64_t free = ~0ull;
+    uint64_t free2;
 
-  if (!a)
-    return NULL;
-  b = (GCAtab *)a->hdr.next;
-
-  for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCtab); i++) {
-    I256_LOADA(v, &a->mark[i * SIMD_MULTIPLIER]);
-    I256_OR(any, any, v);
-    if (!isminor(g))
-      I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], zero);
-    I256_XOR(v, v, ones);
-    I256_STOREA(&a->free[i * SIMD_MULTIPLIER], v);
-    free ^= I256_EQ_64_MASK(v, zero) << (SIMD_MULTIPLIER * i);
-  }
-  for (; b && lim; lim--, a = b, b = (GCAtab*)b->hdr.next, any = any2, v = v2, free = free2) {
-    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS,
-               "both bits cannot be set!");
-
-    lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
-
-    I256_ZERO(any2);
-    free2 = ~0ull;
-
-    a->hdr.flags ^= LJ_GC_SWEEPS;
+    if (!a)
+        return NULL;
+    b = (GCAtab *)a->hdr.next;
 
     for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCtab); i++) {
-      I256_LOADA(v2, &b->mark[i * SIMD_MULTIPLIER]);
-      I256_OR(any2, any2, v2);
-      if (!isminor(g))
-        I256_STOREA(&b->mark[i * SIMD_MULTIPLIER], zero);
-      I256_XOR(v2, v2, ones);
-      I256_STOREA(&b->free[i * SIMD_MULTIPLIER], v2);
-      free2 ^= I256_EQ_64_MASK(v2, zero) << (SIMD_MULTIPLIER * i);
+        _simd_loada(v, &a->mark[i * SIMD_MULTIPLIER]);
+        _simd_or(any, any, v);
+        if (!isminor(g))
+            _simd_storea(&a->mark[i * SIMD_MULTIPLIER], zero);
+        _simd_xor(v, v, ones);
+        _simd_storea(&a->free[i * SIMD_MULTIPLIER], v);
+        free ^= _simd_eq64_mask(v, zero) << (SIMD_MULTIPLIER * i);
+    }
+
+    for (; b && lim; lim--, a = b, b = (GCAtab*)b->hdr.next, any = any2, v = v2, free = free2) {
+        lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
+        lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
+
+        _simd_zero(any2);
+        free2 = ~0ull;
+
+        a->hdr.flags ^= LJ_GC_SWEEPS;
+
+        for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCtab); i++) {
+            _simd_loada(v2, &b->mark[i * SIMD_MULTIPLIER]);
+            _simd_or(any2, any2, v2);
+            if (!isminor(g))
+                _simd_storea(&b->mark[i * SIMD_MULTIPLIER], zero);
+            _simd_xor(v2, v2, ones);
+            _simd_storea(&b->free[i * SIMD_MULTIPLIER], v2);
+            free2 ^= _simd_eq64_mask(v2, zero) << (SIMD_MULTIPLIER * i);
+        }
+
+        sweep_fixup(GCAtab, GCtab);
+
+        if (LJ_UNLIKELY(_simd_eq64_mask(any, zero) == 0xF)) {
+            GCArenaHdr *x = &a->hdr;
+            a = (GCAtab *)a->hdr.next;
+            if (x == g->gc.free_tab) {
+                g->gc.free_tab = x->freenext;
+            }
+            gc_free_arena(g, x);
+            continue;
+        }
+        if (LJ_UNLIKELY(free && !a->free_h)) {
+            free_enq(&a->hdr, g->gc.free_tab);
+        }
+
+        a->free_h = free;
     }
 
     sweep_fixup(GCAtab, GCtab);
-
-    if (LJ_UNLIKELY(I256_EQ_64_MASK(any, zero) == 0xF)) {
-      GCArenaHdr *x = &a->hdr;
-      a = (GCAtab *)a->hdr.next;
-      if (x == g->gc.free_tab) {
-        g->gc.free_tab = x->freenext;
-      }
-      gc_free_arena(g, x);
-      continue;
+    a->hdr.flags ^= LJ_GC_SWEEPS;
+    if (LJ_UNLIKELY(_simd_eq64_mask(any, zero) == 0xF)) {
+        GCArenaHdr *x = &a->hdr;
+        if (x == g->gc.free_tab) {
+            g->gc.free_tab = x->freenext;
+            if (a->hdr.freenext)
+                a->hdr.freenext->freeprev = NULL;
+        }
+        gc_free_arena(g, x);
+        return b;
     }
     if (LJ_UNLIKELY(free && !a->free_h)) {
-      free_enq(&a->hdr, g->gc.free_tab);
+        free_enq(&a->hdr, g->gc.free_tab);
     }
 
     a->free_h = free;
-  }
 
-  sweep_fixup(GCAtab, GCtab);
-  a->hdr.flags ^= LJ_GC_SWEEPS;
-  if (LJ_UNLIKELY(I256_EQ_64_MASK(any, zero) == 0xF)) {
-    GCArenaHdr *x = &a->hdr;
-    if (x == g->gc.free_tab) {
-      g->gc.free_tab = x->freenext;
-      if (a->hdr.freenext)
-        a->hdr.freenext->freeprev = NULL;
-    }
-    gc_free_arena(g, x);
     return b;
-  }
-  if (LJ_UNLIKELY(free && !a->free_h)) {
-    free_enq(&a->hdr, g->gc.free_tab);
-  }
-
-  a->free_h = free;
-
-  return b;
 }
 
-static void *gc_sweep_tab1_i256(global_State *g, GCAtab *a)
+static void *gc_sweep_tab1_simd(global_State *g, GCAtab *a)
 {
-  I256 v;
-  I256 any;
-  I256 zero;
-  I256 ones;
-  I256_ZERO(any);
-  I256_ZERO(zero);
-  I256_ONES(ones);
+  _simd_default_type v;
+  _simd_default_type any;
+  _simd_default_type zero;
+  _simd_default_type ones;
+  _simd_zero(any);
+  _simd_zero(zero);
+  _simd_ones(ones);
+
   do {
     uint64_t free = ~0ull;
-    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS,
-               "both bits cannot be set!");
+    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
 
     lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
 
@@ -941,13 +920,13 @@ static void *gc_sweep_tab1_i256(global_State *g, GCAtab *a)
      * mark = 0 (if major collection)
      */
     for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCtab); i++) {
-      I256_LOADA(v, &a->mark[i * SIMD_MULTIPLIER]);
-      I256_OR(any, any, v);
+      _simd_loada(v, &a->mark[i * SIMD_MULTIPLIER]);
+      _simd_or(any, any, v);
       if (!isminor(g))
-        I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], zero);
-      I256_XOR(v, v, ones);
-      I256_STOREA(&a->free[i * SIMD_MULTIPLIER], v);
-      free ^= I256_EQ_64_MASK(v, zero) << (SIMD_MULTIPLIER * i);
+        _simd_storea(&a->mark[i * SIMD_MULTIPLIER], zero);
+      _simd_xor(v, v, ones);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], v);
+      free ^= _simd_eq64_mask(v, zero) << (SIMD_MULTIPLIER * i);
     }
 
     sweep_fixup(GCAtab, GCtab);
@@ -960,19 +939,19 @@ static void *gc_sweep_tab1_i256(global_State *g, GCAtab *a)
   return a;
 }
 
-static void *gc_sweep_fintab1_i256(global_State *g, GCAtab *a)
+static void *gc_sweep_fintab1_simd(global_State *g, GCAtab *a)
 {
-  I256 v, f;
-  I256 any;
-  I256 zero;
-  I256 ones;
-  I256_ZERO(any);
-  I256_ZERO(zero);
-  I256_ONES(ones);
+  _simd_default_type v, f;
+  _simd_default_type any;
+  _simd_default_type zero;
+  _simd_default_type ones;
+  _simd_zero(any);
+  _simd_zero(zero);
+  _simd_ones(ones);
+
   do {
     uint64_t free = ~0ull;
-    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS,
-               "both bits cannot be set!");
+    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
 
     lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
 
@@ -982,16 +961,16 @@ static void *gc_sweep_fintab1_i256(global_State *g, GCAtab *a)
      * mark = 0 (if major collection)
      */
     for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCtab); i++) {
-      I256_LOADA(v, &a->mark[i * SIMD_MULTIPLIER]);
-      I256_LOADA(f, &a->fin[i * SIMD_MULTIPLIER]);
-      I256_OR(any, any, v);
+      _simd_loada(v, &a->mark[i * SIMD_MULTIPLIER]);
+      _simd_loada(v, &a->fin[i * SIMD_MULTIPLIER]);
+      _simd_or(any, any, v);
       if (!isminor(g))
-        I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], zero);
-      I256_AND(f, f, v);
-      I256_XOR(v, v, ones);
-      I256_STOREA(&a->free[i * SIMD_MULTIPLIER], v);
-      I256_STOREA(&a->fin[i * SIMD_MULTIPLIER], f);
-      free ^= I256_EQ_64_MASK(v, zero) << (SIMD_MULTIPLIER * i);
+        _simd_storea(&a->mark[i * SIMD_MULTIPLIER], zero);
+      _simd_and(f, f, v);
+      _simd_xor(v, v, ones);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], v);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], f);
+      free ^= _simd_eq64_mask(v, zero) << (SIMD_MULTIPLIER * i);
     }
 
     sweep_fixup(GCAtab, GCtab);
@@ -1004,8 +983,7 @@ static void *gc_sweep_fintab1_i256(global_State *g, GCAtab *a)
   return a;
 }
 
-static void gc_presweep_process(global_State *g, GCAtab *a, uint32_t i,
-                                bitmap_t f)
+static void gc_presweep_process(global_State *g, GCAtab *a, uint32_t i, bitmap_t f)
 {
   for (uint32_t j = tzcount64(f); f; f = reset_lowest64(f), j = tzcount64(f)) {
     GCtab *t = aobj(a, GCtab, (i << 6) + j);
@@ -1079,8 +1057,7 @@ static void gc_presweep_udata(global_State *g, GCAudata *a)
   for (; a; a = (GCAudata *)a->hdr.next) {
     uint32_t i;
     bitmap_t gray_h = 0;
-    bitmap_t f = a->fin_req[0] & ~(a->free[0] | a->fin[0] | a->mark[0]) &
-                 FREE_LOW(GCAudata, GCudata);
+    bitmap_t f = a->fin_req[0] & ~(a->free[0] | a->fin[0] | a->mark[0]) & FREE_LOW(GCAudata, GCudata);
     a->fin[0] |= f;
     a->gray[0] = f;
     a->mark[0] |= f;
@@ -1116,33 +1093,33 @@ static void gc_presweep_udata(global_State *g, GCAudata *a)
   }
 }
 
-static void *gc_sweep_func_i256(global_State *g, GCAfunc *a, uint32_t lim)
+static void *gc_sweep_func_simd(global_State *g, GCAfunc *a, uint32_t lim)
 {
-  I256 v;
-  I256 any;
-  I256 zero;
-  I256 ones;
-  I256_ZERO(zero);
-  I256_ONES(ones);
+  _simd_default_type v;
+  _simd_default_type any;
+  _simd_default_type zero;
+  _simd_default_type ones;
+  _simd_zero(zero);
+  _simd_ones(ones);
+
   for (; a && lim; lim--) {
     uint64_t free = ~0ull;
-    I256_ZERO(any);
+    _simd_zero(any);
 
-    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS,
-               "both bits cannot be set!");
+    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
 
     lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
     a->hdr.flags ^= LJ_GC_SWEEPS;
 
     for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCfunc); i++) {
       /* free = ~mark; mark = 0*/
-      I256_LOADA(v, &a->mark[i * SIMD_MULTIPLIER]);
-      I256_OR(any, any, v);
+      _simd_loada(v, &a->mark[i * SIMD_MULTIPLIER]);
+      _simd_or(any, any, v);
       if (!isminor(g))
-        I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], zero);
-      I256_XOR(v, v, ones);
-      I256_STOREA(&a->free[i * SIMD_MULTIPLIER], v);
-      free ^= I256_EQ_64_MASK(v, zero) << (SIMD_MULTIPLIER * i);
+        _simd_storea(&a->mark[i * SIMD_MULTIPLIER], zero);
+      _simd_xor(v, v, ones);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], v);
+      free ^= _simd_eq64_mask(v, zero) << (SIMD_MULTIPLIER * i);
     }
 
     sweep_fixup(GCAfunc, GCfunc);
@@ -1155,17 +1132,18 @@ static void *gc_sweep_func_i256(global_State *g, GCAfunc *a, uint32_t lim)
   return a;
 }
 
-static void *gc_sweep_uv_i256(global_State *g, GCAupval *a, uint32_t lim)
+static void *gc_sweep_uv_simd(global_State *g, GCAupval *a, uint32_t lim)
 {
-  I256 v;
-  I256 any;
-  I256 zero;
-  I256 ones;
-  I256_ZERO(zero);
-  I256_ONES(ones);
+  _simd_default_type v;
+  _simd_default_type any;
+  _simd_default_type zero;
+  _simd_default_type ones;
+  _simd_zero(zero);
+  _simd_ones(ones);
+
   for (; a && lim; lim--) {
     uint64_t free = ~0ull;
-    I256_ZERO(any);
+    _simd_zero(any);
 
     lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
 
@@ -1174,13 +1152,13 @@ static void *gc_sweep_uv_i256(global_State *g, GCAupval *a, uint32_t lim)
 
     for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCupval); i++) {
       /* free = ~mark; mark = 0*/
-      I256_LOADA(v, &a->mark[i * SIMD_MULTIPLIER]);
-      I256_OR(any, any, v);
+      _simd_loada(v, &a->mark[i * SIMD_MULTIPLIER]);
+      _simd_or(any, any, v);
       if (!isminor(g))
-        I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], zero);
-      I256_XOR(v, v, ones);
-      I256_STOREA(&a->free[i * SIMD_MULTIPLIER], v);
-      free ^= I256_EQ_64_MASK(v, zero) << (SIMD_MULTIPLIER * i);
+        _simd_storea(&a->mark[i * SIMD_MULTIPLIER], zero);
+      _simd_xor(v, v, ones);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], v);
+      free ^= _simd_eq64_mask(v, zero) << (SIMD_MULTIPLIER * i);
     }
 
     sweep_fixup(GCAupval, GCupval);
@@ -1195,42 +1173,41 @@ static void *gc_sweep_uv_i256(global_State *g, GCAupval *a, uint32_t lim)
 
 static void *gc_sweep_tab(global_State *g, GCAtab *a, uint32_t lim)
 {
-  return gc_sweep_tab_i256(g, a, lim);
+  return gc_sweep_tab_simd(g, a, lim);
 }
 static void *gc_sweep_tab1(global_State *g, GCAtab *a)
 {
-  return gc_sweep_tab1_i256(g, a);
+  return gc_sweep_tab1_simd(g, a);
 }
 
 static void *gc_sweep_fintab(global_State *g, GCAtab *a, uint32_t lim)
 {
-  return gc_sweep_fintab1_i256(g, a);
+  return gc_sweep_fintab1_simd(g, a);
 }
 static void *gc_sweep_fintab1(global_State *g, GCAtab *a)
 {
-  return gc_sweep_fintab1_i256(g, a);
+  return gc_sweep_fintab1_simd(g, a);
 }
 
 static void *gc_sweep_func(global_State *g, GCAfunc *a, uint32_t lim)
 {
-  return gc_sweep_func_i256(g, a, lim);
+  return gc_sweep_func_simd(g, a, lim);
 }
 static void *gc_sweep_func1(global_State *g, GCAfunc *a)
 {
-  return gc_sweep_func_i256(g, a, 1);
+  return gc_sweep_func_simd(g, a, 1);
 }
 
 static void *gc_sweep_uv(global_State *g, GCAupval *a, uint32_t lim)
 {
-  return gc_sweep_uv_i256(g, a, lim);
+  return gc_sweep_uv_simd(g, a, lim);
 }
 static void *gc_sweep_uv1(global_State *g, GCAupval *a)
 {
-  return gc_sweep_uv_i256(g, a, 1);
+  return gc_sweep_uv_simd(g, a, 1);
 }
 
-static void gc_sweep_udata_obj(global_State *g, GCAudata *a, uint32_t i,
-                               bitmap_t f)
+static void gc_sweep_udata_obj(global_State *g, GCAudata *a, uint32_t i, bitmap_t f)
 {
   GCudata *base = aobj(a, GCudata, i << 6);
   for (uint32_t j = tzcount64(f); f; f = reset_lowest64(f), j = tzcount64(f)) {
@@ -1252,8 +1229,7 @@ static void *gc_sweep_udata1(global_State *g, GCAudata *a)
   bitmap_t any = 0;
   uint32_t i = 0;
 
-  lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS,
-             "both bits cannot be set!");
+  lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
 
   lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
   a->hdr.flags ^= LJ_GC_SWEEPS;
@@ -1342,12 +1318,9 @@ static void gc_clear_strtab(global_State *g, uint32_t hid)
   lj_assertG(i != 0xF, "Invalid hid field - low index 15");
   if (hid >= 0xFC000000) { /* Primary always has the top 6 bits set */
     st = strtab_primary(g, hid);
-    lj_assertG(((hid & 0x3FFFFFF) >> 4) <= g->str.mask,
-               "Invalid hid field - primary list exceeded");
+    lj_assertG(((hid & 0x3FFFFFF) >> 4) <= g->str.mask, "Invalid hid field - primary list exceeded");
     lj_assertG(gcrefu(st->strs[i]) > 1, "Clearing null string");
-    lj_assertG(((GCstr *)(gcrefu(st->strs[i]) & ~(uintptr_t)1))->hid ==
-                   hid,
-               "Mismatch, str->hid != hid");
+    lj_assertG(((GCstr *)(gcrefu(st->strs[i]) & ~(uintptr_t)1))->hid == hid, "Mismatch, str->hid != hid");
 
     setgcrefnull(st->strs[i]);
     /* By flipping the bits we eliminate matches because the low N bits must
@@ -1357,15 +1330,11 @@ static void gc_clear_strtab(global_State *g, uint32_t hid)
     st->prev_len--;
     return;
   }
-  lj_assertG((hid >> 13) < g->str.secondary_list_capacity,
-             "Invalid hid field - secondary list exceeded");
-  lj_assertG(((hid >> 4) & 0x1FF) < STRTAB_ENTRIES_PER_ARENA,
-             "Invalid hid field - bad arena index");
+  lj_assertG((hid >> 13) < g->str.secondary_list_capacity, "Invalid hid field - secondary list exceeded");
+  lj_assertG(((hid >> 4) & 0x1FF) < STRTAB_ENTRIES_PER_ARENA, "Invalid hid field - bad arena index");
   st = strtab_secondary(g, hid);
   lj_assertG(gcrefu(st->strs[i]) > 1, "Clearing null string");
-  lj_assertG(((GCstr *)(gcrefu(st->strs[i]) & ~(uintptr_t)1))->hid ==
-                 hid,
-             "Mismatch, str->hid != hid");
+  lj_assertG(((GCstr *)(gcrefu(st->strs[i]) & ~(uintptr_t)1))->hid == hid, "Mismatch, str->hid != hid");
   setgcrefnull(st->strs[i]);
   st->hashes[i] = ~st->hashes[i];
   st->prev_len--;
@@ -1393,25 +1362,22 @@ static void free_str_small(global_State *g, GCArenaHdr *h)
 {
   GCstr *s = (GCstr*)h;
   /* If the arena is considered dirty then every element is in use */
-  for (uint32_t i = ELEMENTS_OCCUPIED(GCAstr, GCstr);
-       i < ARENA_SIZE / sizeof(GCstr); i += 2) {
+  for (uint32_t i = ELEMENTS_OCCUPIED(GCAstr, GCstr); i < ARENA_SIZE / sizeof(GCstr); i += 2) {
     gc_clear_strtab(g, s[i].hid);
   }
 }
 
 static void *gc_sweep_str_small(global_State *g, GCAstr *a, uint32_t lim)
 {
-  I256 v;
-  I256 x;
-  I256 t;
-  I256 any;
-  I256 zero;
-  I256 mask;
+  _simd_default_type v, x, t;
+  _simd_default_type any;
+  _simd_default_type zero;
+  _simd_default_type mask;
   uint64_t temp_buf[67];
   uint64_t *temp = (uint64_t*)(((uintptr_t)temp_buf + 31) & ~31ull);
-  I256_ZERO(any);
-  I256_ZERO(zero);
-  I256_BCAST_8(mask, 0x55);
+  _simd_zero(any);
+  _simd_zero(zero);
+  _simd_bcast8(mask, 0x55);
 
   for (; a && lim; lim--) {
     uint64_t free = ~0ull;
@@ -1429,27 +1395,40 @@ static void *gc_sweep_str_small(global_State *g, GCAstr *a, uint32_t lim)
        * free = ~fixed & ~mark & 0x55 (implemented as (fixed | mark) ^ 0x55)
        * mark = 0
        */
-      I256_LOADA(v, &a->mark[i * SIMD_MULTIPLIER]);
-      I256_LOADA(x, &a->fixed[i * SIMD_MULTIPLIER]);
+      _simd_loada(v, &a->mark[i * SIMD_MULTIPLIER]);
+      _simd_loada(x, &a->fixed[i * SIMD_MULTIPLIER]);
+
       /* compute popcount(mark[i] | (mark[i+1] << 1)) */
       /* This should be slightly faster than doing it in scalar */
-      I256_SHL_64(t, v, 1);
-      I256_SHUFFLE_64(t, t, 0xF);
-      I256_OR(t, t, v);
-      count += popcount64(I256_EXTRACT(t, 0)) + popcount64(I256_EXTRACT(t, 2));
+      _simd_shl64(t, v, 1);
 
-      I256_OR(t, v, x);
-      I256_OR(any, any, t);
+      #if LUAJIT_TARGET == LUAJIT_ARCH_ARM64
+        _simd_shuffle64(t, t, 1);
+      #else
+        _simd_shuffle64(t, t, 0xF);
+      #endif
+
+      _simd_or(t, t, v);
+
+      #if LUAJIT_TARGET == LUAJIT_ARCH_ARM64
+        uint64_t lane0 = _simd_extract(t, 0);
+        count += popcount64(lane0) + popcount64(lane0 >> 32);
+      #else
+        count += popcount64(_simd_extract(t, 0)) + popcount64(_simd_extract(t, 2));
+      #endif
+
+      _simd_or(t, v, x);
+      _simd_or(any, any, t);
       if (!isminor(g))
-        I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], zero);
-      I256_XOR(t, t, mask);
+        _simd_storea(&a->mark[i * SIMD_MULTIPLIER], zero);
+      _simd_xor(t, t, mask);
 
-      I256_LOADA(v, &a->free[i * SIMD_MULTIPLIER]);
-      I256_XOR(v, v, t);
-      I256_STOREA(&temp[i * SIMD_MULTIPLIER], v);
-      free_mask |= I256_NEQ_64_MASK(v, zero) << (4 * i);
-      I256_STOREA(&a->free[i * SIMD_MULTIPLIER], t);
-      free ^= I256_EQ_64_MASK(t, zero) << (SIMD_MULTIPLIER * i);
+      _simd_loada(v, &a->free[i * SIMD_MULTIPLIER]);
+      _simd_xor(v, v, t);
+      _simd_storea(&temp[i * SIMD_MULTIPLIER], v);
+      free_mask |= _simd_neq64_mask(v, zero) << (4 * i);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], t);
+      free ^= _simd_eq64_mask(t, zero) << (SIMD_MULTIPLIER * i);
     }
 
     free_mask &= ~1ull;
@@ -1460,8 +1439,9 @@ static void *gc_sweep_str_small(global_State *g, GCAstr *a, uint32_t lim)
     sweep_fixup2(GCAstr, GCstr);
 
     sweep_free(GCAstr, str_small, free_str_small, free && !a->free_h,
-               if (a->hdr.flags & LJ_GC_SWEEP_DIRTY) free_str_small(g, x);
-               else clean_str_small(g, (GCstr *)a, free_mask, temp););
+      if (a->hdr.flags & LJ_GC_SWEEP_DIRTY) free_str_small(g, x);
+      else clean_str_small(g, (GCstr *)a, free_mask, temp);
+    );
 
     g->str.num_small += count;
     if (a->hdr.flags & LJ_GC_SWEEP_DIRTY) {
@@ -1577,21 +1557,19 @@ static void gc_aggregate_str_freelist(global_State *g, GCAstr *a)
  */
 static void *gc_sweep_str_med(global_State *g, GCAstr *a, uint32_t lim)
 {
-  I256 v;
-  I256 m;
-  I256 f;
-  I256 b;
-  I256 any;
-  I256 new_free;
-  I256 zero;
-  I256_ZERO(zero);
-  for (; a && lim; lim--) {
-    I256_ZERO(any);
-    I256_ZERO(new_free);
-    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS,
-               "both bits cannot be set!");
+  _simd_default_type v, m, f, b;
+  _simd_default_type any;
+  _simd_default_type zero;
+  _simd_default_type new_free;
+  _simd_zero(zero);
 
+  for (; a && lim; lim--) {
+    _simd_zero(any);
+    _simd_zero(new_free);
+
+    lj_assertG((a->hdr.flags & LJ_GC_SWEEPS) != LJ_GC_SWEEPS, "both bits cannot be set!");
     lj_assertG(!(a->hdr.flags & g->gc.currentsweep), "sweeping swept arena");
+
     a->hdr.flags ^= LJ_GC_SWEEPS;
 
     for (uint32_t i = 0; i < SIMD_WORDS_FOR_TYPE(GCstr); i++) {
@@ -1608,21 +1586,22 @@ static void *gc_sweep_str_med(global_State *g, GCAstr *a, uint32_t lim)
        * free = (free & mark) | fixed
        * mark = (free ^ mark) & ~fixed
        */
-      I256_LOADA(m, &a->mark[i * SIMD_MULTIPLIER]);
-      I256_LOADA(f, &a->fixed[i * SIMD_MULTIPLIER]);
-      I256_LOADA(b, &a->free[i * SIMD_MULTIPLIER]);
-      I256_AND(v, m, b);
-      I256_OR(v, v, f);
-      I256_OR(any, any, v);
-      I256_STOREA(&a->free[i * SIMD_MULTIPLIER], v);
-      I256_ANDNOT(v, b, v);
-      I256_OR(new_free, new_free, v);
-      I256_XOR(v, m, b);
-      I256_ANDNOT(v, v, f);
-      I256_STOREA(&a->mark[i * SIMD_MULTIPLIER], v);
+      _simd_loada(m, &a->mark[i * SIMD_MULTIPLIER]);
+      _simd_loada(f, &a->fixed[i * SIMD_MULTIPLIER]);
+      _simd_loada(b, &a->free[i * SIMD_MULTIPLIER]);
+      _simd_and(v, m, b);
+      _simd_or(v, v, f);
+      _simd_or(any, any, v);
+      _simd_storea(&a->free[i * SIMD_MULTIPLIER], v);
+      _simd_andnot(v, b, v);
+      _simd_or(new_free, new_free, v);
+      _simd_xor(v, m, b);
+      _simd_andnot(v, v, f);
+      _simd_storea(&a->mark[i * SIMD_MULTIPLIER], v);
     }
+
     int has_new_free = 0;
-    if (I256_EQ_64_MASK(new_free, zero) != 0xF) {
+    if (_simd_eq64_mask(new_free, zero) != 0xF) {
       /* Even in the case where all strings are freed, we still need to remove
        * the newly freed ones from the string table, so this can't be skipped.
        */
@@ -1630,6 +1609,7 @@ static void *gc_sweep_str_med(global_State *g, GCAstr *a, uint32_t lim)
       a->hdr.flags |= LJ_GC_ON_FREE_LIST;
       gc_aggregate_str_freelist(g, a);
     }
+
     sweep_free(GCAstr, str, free_str, has_new_free);
 
     g->gc.strings += a->in_use;
@@ -1656,7 +1636,7 @@ static GCRef *gc_sweep(global_State *g, GCRef *p, uint32_t lim)
     } else {  /* Otherwise value is dead, free it. */
       setgcrefr(*p, o->gch.nextgc);
       if (o == gcref(g->gc.root))
-	setgcrefr(g->gc.root, o->gch.nextgc);  /* Adjust list anchor. */
+	      setgcrefr(g->gc.root, o->gch.nextgc);  /* Adjust list anchor. */
       gc_freefunc[o->gch.gct - ~LJ_TSTR](g, o);
     }
   }
@@ -1693,21 +1673,20 @@ static void gc_clearweak(global_State *g, GCobj *o)
     if ((t->gcflags & LJ_GC_WEAKVAL)) {
       MSize i, asize = t->asize;
       for (i = 0; i < asize; i++) {
-	/* Clear array slot when value is about to be collected. */
-	TValue *tv = arrayslot(t, i);
-	if (gc_mayclear(g, tv, 1))
-	  setnilV(tv);
+        /* Clear array slot when value is about to be collected. */
+        TValue *tv = arrayslot(t, i);
+        if (gc_mayclear(g, tv, 1))
+          setnilV(tv);
       }
     }
     if (t->hmask > 0) {
       Node *node = noderef(t->node);
       MSize i, hmask = t->hmask;
       for (i = 0; i <= hmask; i++) {
-	Node *n = &node[i];
-	/* Clear hash slot when key or value is about to be collected. */
-	if (!tvisnil(&n->val) && (gc_mayclear(g, &n->key, 0) ||
-				  gc_mayclear(g, &n->val, 1)))
-	  setnilV(&n->val);
+        Node *n = &node[i];
+        /* Clear hash slot when key or value is about to be collected. */
+        if (!tvisnil(&n->val) && (gc_mayclear(g, &n->key, 0) || gc_mayclear(g, &n->val, 1)))
+          setnilV(&n->val);
       }
     }
     o = gcref(t->gclist);
@@ -1715,8 +1694,7 @@ static void gc_clearweak(global_State *g, GCobj *o)
 }
 
 /* Call a userdata or cdata finalizer. */
-static void gc_call_finalizer(global_State *g, lua_State *L,
-			      cTValue *mo, GCobj *o)
+static void gc_call_finalizer(global_State *g, lua_State *L, cTValue *mo, GCobj *o)
 {
   /* Save and restore lots of state around the __gc callback. */
   uint8_t oldh = hook_save(g);
@@ -2023,7 +2001,7 @@ static size_t gc_onestep(lua_State *L)
     }
     /* TODO: make this non-atomic again */
     return 0;
-    }
+  }
   case GCSsweep_blob: {
     if (~g->gc.bloblist_sweep)
       gc_sweepblobs(g);
@@ -2127,12 +2105,12 @@ static size_t gc_onestep(lua_State *L)
     if (gcref(g->gc.mmudata) != NULL) {
       GCSize old = g->gc.total;
       if (tvref(g->jit_base))  /* Don't call finalizers on trace. */
-	return LJ_MAX_MEM;
+	      return LJ_MAX_MEM;
       gc_finalize(L);  /* Finalize one userdata object. */
       if (old >= g->gc.total && g->gc.estimate > old - g->gc.total)
-	g->gc.estimate -= old - g->gc.total;
+	      g->gc.estimate -= old - g->gc.total;
       if (g->gc.estimate > GCFINALIZECOST)
-	g->gc.estimate -= GCFINALIZECOST;
+	      g->gc.estimate -= GCFINALIZECOST;
       return GCFINALIZECOST;
     }
 #if LJ_HASFFI
@@ -2223,10 +2201,8 @@ void lj_gc_fullgc(lua_State *L, int maximal)
 /* Move the GC propagation frontier forward. */
 void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v)
 {
-  lj_assertG(isblack(g, o) && iswhite(g, v) && !checkdead(g, v) && !checkdead(g, o),
-	     "bad object states for forward barrier");
-  lj_assertG(g->gc.state != GCSfinalize && g->gc.state != GCSpause,
-	     "bad GC state");
+  lj_assertG(isblack(g, o) && iswhite(g, v) && !checkdead(g, v) && !checkdead(g, o), "bad object states for forward barrier");
+  lj_assertG(g->gc.state != GCSfinalize && g->gc.state != GCSpause, "bad GC state");
   lj_assertG(o->gch.gct != ~LJ_TTAB, "barrier object is not a table");
   /* Preserve invariant during propagation. Otherwise it doesn't matter. */
   if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
@@ -2262,8 +2238,7 @@ void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz)
   if (p == NULL && nsz > 0)
     lj_err_mem(L);
   lj_assertG((nsz == 0) == (p == NULL), "allocf API violation");
-  lj_assertG(checkptrGC(p),
-	     "allocated memory address %p outside required range", p);
+  lj_assertG(checkptrGC(p), "allocated memory address %p outside required range", p);
   g->gc.total = (g->gc.total - osz) + nsz;
   g->gc.malloc = (g->gc.malloc - osz) + nsz;
   return p;
@@ -2276,8 +2251,7 @@ void * LJ_FASTCALL lj_mem_newgco(lua_State *L, GCSize size)
   GCobj *o = (GCobj *)g->allocf(g->allocd, NULL, 0, size);
   if (o == NULL)
     lj_err_mem(L);
-  lj_assertG(checkptrGC(o),
-	     "allocated memory address %p outside required range", o);
+  lj_assertG(checkptrGC(o), "allocated memory address %p outside required range", o);
   g->gc.total += size;
   g->gc.malloc += size;
   setgcrefr(o->gch.nextgc, g->gc.root);
@@ -2370,7 +2344,7 @@ int checkdead(global_State *g, GCobj *o)
     o->hdr.next = g->gc.var;                                                   \
     g->gc.var = &o->hdr;                                                       \
     __VA_ARGS__                                                                \
-   return o;                                                                   \
+    return o;                                                                  \
   }
 
 /* All bitmap allocators are basically the same */
@@ -2395,17 +2369,12 @@ int checkdead(global_State *g, GCobj *o)
   x = &((otype *)o)[(i << 6) + j];                                             \
   lj_assertG((char *)x + sizeof(otype) - (char *)o <= ARENA_SIZE, "out of bounds")
 
-NEW_ARENA(lj_arena_tab, GCAtab, GCtab, ~LJ_TTAB, tab, free_tab, gc_sweep_tab,
-          do_arena_init)
-NEW_ARENA(lj_arena_fintab, GCAtab, GCtab, ~LJ_TTAB, fintab, free_fintab,
-          gc_sweep_fintab, do_arena_init)
+NEW_ARENA(lj_arena_tab, GCAtab, GCtab, ~LJ_TTAB, tab, free_tab, gc_sweep_tab, do_arena_init)
+NEW_ARENA(lj_arena_fintab, GCAtab, GCtab, ~LJ_TTAB, fintab, free_fintab, gc_sweep_fintab, do_arena_init)
 NEW_ARENA(lj_arena_uv, GCAupval, GCupval, ~LJ_TUPVAL, uv, free_uv, gc_sweep_uv, do_arena_init)
-NEW_ARENA(lj_arena_func, GCAfunc, GCfunc, ~LJ_TFUNC, func, free_func,
-          gc_sweep_func, do_arena_init)
-NEW_ARENA(lj_arena_udata, GCAudata, GCudata, ~LJ_TUDATA, udata, free_udata,
-          gc_sweep_udata, do_arena_init, o->free4_h = o->free_h;)
-NEW_ARENA(lj_arena_str_small, GCAstr, GCstr, ~LJ_TSTR, str_small,
-          free_str_small, gc_sweep_str_small, do_smallstr_arena_init)
+NEW_ARENA(lj_arena_func, GCAfunc, GCfunc, ~LJ_TFUNC, func, free_func, gc_sweep_func, do_arena_init)
+NEW_ARENA(lj_arena_udata, GCAudata, GCudata, ~LJ_TUDATA, udata, free_udata, gc_sweep_udata, do_arena_init, o->free4_h = o->free_h;)
+NEW_ARENA(lj_arena_str_small, GCAstr, GCstr, ~LJ_TSTR, str_small, free_str_small, gc_sweep_str_small, do_smallstr_arena_init)
 
 GCAstr *lj_arena_str_med_new(global_State *g)
 {
@@ -2519,8 +2488,7 @@ void lj_mem_freechainedstrtab(global_State *g, StrTab *st)
   StrTab *prev = get_strtab(g, st->prev_len);
   prev->next = st->next;
   if (st->next) {
-    st->next->prev_len =
-        (st->next->prev_len & 0xF) | (st->prev_len & 0xFFFFFFF0);
+    st->next->prev_len = (st->next->prev_len & 0xF) | (st->prev_len & 0xFFFFFFF0);
   }
   lj_mem_freestrtab(g, st);
 }

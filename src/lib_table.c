@@ -162,15 +162,13 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
   GCtab *t = lj_lib_checktab(L, 1);
   GCstr *sep = lj_lib_optstr(L, 2);
   int32_t i = lj_lib_optint(L, 3, 1);
-  int32_t e = (L->base+3 < L->top && !tvisnil(L->base+3)) ?
-	      lj_lib_checkint(L, 4) : (int32_t)lj_tab_len(t);
+  int32_t e = (L->base+3 < L->top && !tvisnil(L->base+3)) ? lj_lib_checkint(L, 4) : (int32_t)lj_tab_len(t);
   SBuf *sb = lj_buf_tmp_(L);
   SBuf *sbx = lj_buf_puttab(sb, t, sep, i, e);
   if (LJ_UNLIKELY(!sbx)) {  /* Error: bad element type. */
     int32_t idx = (int32_t)(intptr_t)sb->w;
     cTValue *o = lj_tab_getint(t, idx);
-    lj_err_callerv(L, LJ_ERR_TABCAT,
-		   lj_obj_itypename[o ? itypemap(o) : ~LJ_TNIL], idx);
+    lj_err_callerv(L, LJ_ERR_TABCAT, lj_obj_itypename[o ? itypemap(o) : ~LJ_TNIL], idx);
   }
   setstrV(L, L->top-1, lj_buf_str(L, sbx));
   lj_gc_check(L);
