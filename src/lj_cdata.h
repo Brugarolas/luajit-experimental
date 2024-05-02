@@ -46,6 +46,9 @@ static LJ_AINLINE GCcdata *lj_cdata_new(CTState *cts, CTypeID id, CTSize sz)
   cd = (GCcdata *)lj_mem_newgco(cts->L, sizeof(GCcdata) + sz);
   cd->gct = ~LJ_TCDATA;
   cd->ctypeid = ctype_check(cts, id);
+#ifdef COUNTS
+  G(cts->L)->gc.cdatanum++;
+#endif
   return cd;
 }
 
@@ -55,6 +58,9 @@ static LJ_AINLINE GCcdata *lj_cdata_new_(lua_State *L, CTypeID id, CTSize sz)
   GCcdata *cd = (GCcdata *)lj_mem_newgco(L, sizeof(GCcdata) + sz);
   cd->gct = ~LJ_TCDATA;
   cd->ctypeid = id;
+#ifdef COUNTS
+  G(L)->gc.cdatanum++;
+#endif
   return cd;
 }
 

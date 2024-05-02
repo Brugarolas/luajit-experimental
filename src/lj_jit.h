@@ -23,6 +23,7 @@
 #define JIT_F_SSE3		(JIT_F_CPU << 0)
 #define JIT_F_SSE4_1		(JIT_F_CPU << 1)
 #define JIT_F_BMI2		(JIT_F_CPU << 2)
+#define JIT_F_SSE4_2		(JIT_F_CPU << 3)
 
 
 #define JIT_F_CPUSTRING		"\4SSE3\6SSE4.1\4BMI2"
@@ -103,7 +104,11 @@
 /* Note: FMA is not set by default. */
 
 /* -- JIT engine parameters ----------------------------------------------- */
-
+#if LJ_TARGET_PSP2
+#define JIT_P_sizemcode_DEFAULT		1024
+#define JIT_P_maxmcode_DEFAULT          8192
+#else
+#define JIT_P_maxmcode_DEFAULT          512
 #if LJ_TARGET_WINDOWS || LJ_64
 /* See: https://devblogs.microsoft.com/oldnewthing/20031008-00/?p=42223 */
 #define JIT_P_sizemcode_DEFAULT		64
@@ -111,15 +116,16 @@
 /* Could go as low as 4K, but the mmap() overhead would be rather high. */
 #define JIT_P_sizemcode_DEFAULT		32
 #endif
+#endif
 
 /* Optimization parameters and their defaults. Length is a char in octal! */
 #define JIT_PARAMDEF(_) \
-  _(\010, maxtrace,	1000)	/* Max. # of traces in cache. */ \
-  _(\011, maxrecord,	4000)	/* Max. # of recorded IR instructions. */ \
+  _(\010, maxtrace,	8000)	/* Max. # of traces in cache. */ \
+  _(\011, maxrecord,	16000)	/* Max. # of recorded IR instructions. */ \
   _(\012, maxirconst,	500)	/* Max. # of IR constants of a trace. */ \
   _(\007, maxside,	100)	/* Max. # of side traces of a root trace. */ \
   _(\007, maxsnap,	500)	/* Max. # of snapshots for a trace. */ \
-  _(\011, minstitch,	0)	/* Min. # of IR ins for a stitched trace. */ \
+  _(\011, minstitch,	3)	/* Min. # of IR ins for a stitched trace. */ \
   \
   _(\007, hotloop,	56)	/* # of iter. to detect a hot loop/call. */ \
   _(\007, hotexit,	10)	/* # of taken exits to start a side trace. */ \
@@ -133,7 +139,7 @@
   /* Size of each machine code area (in KBytes). */ \
   _(\011, sizemcode,	JIT_P_sizemcode_DEFAULT) \
   /* Max. total size of all machine code areas (in KBytes). */ \
-  _(\010, maxmcode,	512) \
+  _(\010, maxmcode,	40960) \
   /* End of list. */
 
 enum {
@@ -512,6 +518,11 @@ typedef struct jit_State {
   MCode *mcbot;		/* Bottom of current mcode area. */
   size_t szmcarea;	/* Size of current mcode area. */
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
+#ifdef COUNTS
+  size_t tracenum;	/* Overall number of traces. */
+  size_t nsnaprestore;	/* Overall number of snap restores. */
+  size_t ntraceabort;	/* Overall number of abort traces. */
+#endif
 
   TValue errinfo;	/* Additional info element for trace errors. */
 
@@ -520,6 +531,8 @@ typedef struct jit_State {
   BCLine prev_line;	/* Previous line. */
   int prof_mode;	/* Profiling mode: 0, 'f', 'l'. */
 #endif
+  PRNGState prng;	/* PRNG state for the JIT compiler, defaults to prng in
+			   global_State. */
 } jit_State;
 
 #ifdef LUA_USE_ASSERT

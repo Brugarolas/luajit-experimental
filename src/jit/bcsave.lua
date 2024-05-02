@@ -27,6 +27,7 @@ local function usage()
   io.stderr:write[[
 Save LuaJIT bytecode: luajit -b[options] input output
   -l        Only list bytecode.
+  -L        Only list bytecode with lineinfo.
   -s        Strip debug info (default).
   -g        Keep debug info.
   -W        Generate 32 bit (non-GC64) bytecode.
@@ -101,6 +102,7 @@ local map_arch = {
   mips64el =	{ e = "le", b = 64, m = 8, f = 0x80000007, },
   mips64r6 =	{ e = "be", b = 64, m = 8, f = 0xa0000407, },
   mips64r6el =	{ e = "le", b = 64, m = 8, f = 0xa0000407, },
+  s390x =	{ e = "be", b = 64, m = 22, },
 }
 
 local map_os = {
@@ -534,9 +536,9 @@ end
 
 ------------------------------------------------------------------------------
 
-local function bclist(ctx, input, output)
+local function bclist(ctx, input, output, lineinfo)
   local f = readfile(ctx, input)
-  require("jit.bc").dump(f, savefile(output, "w"), true)
+  require("jit.bc").dump(f, savefile(output, "w"), true, lineinfo)
 end
 
 local function bcsave(ctx, input, output)
@@ -563,6 +565,7 @@ local function docmd(...)
   local arg = {...}
   local n = 1
   local list = false
+  local lineinfo = false
   local ctx = {
     mode = "bt", arch = jit.arch, os = jit.os:lower(),
     type = false, modname = false, string = false,
@@ -578,6 +581,9 @@ local function docmd(...)
 	local opt = a:sub(m, m)
 	if opt == "l" then
 	  list = true
+	elseif opt == "L" then
+	  list = true
+	  lineinfo = true
 	elseif opt == "s" then
 	  strip = "s"
 	elseif opt == "g" then
@@ -613,7 +619,7 @@ local function docmd(...)
   ctx.mode = ctx.mode .. strip .. gc64
   if list then
     if #arg == 0 or #arg > 2 then usage() end
-    bclist(ctx, arg[1], arg[2] or "-")
+    bclist(ctx, arg[1], arg[2] or "-", lineinfo)
   else
     if #arg ~= 2 then usage() end
     bcsave(ctx, arg[1], arg[2])

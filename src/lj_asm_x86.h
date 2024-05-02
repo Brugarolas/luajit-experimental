@@ -1310,7 +1310,7 @@ static void asm_hrefk(ASMState *as, IRIns *ir)
   int32_t ofs = (int32_t)(kslot->op2 * sizeof(Node));
   Reg dest = ra_used(ir) ? ra_dest(as, ir, RSET_GPR) : RID_NONE;
   Reg node = ra_alloc1(as, ir->op1, RSET_GPR);
-#if !LJ_64
+#if !LJ_64 || (defined(LUAJIT_USE_VALGRIND) && !LJ_GC64)
   MCLabel l_exit;
 #endif
   lj_assertA(ofs % sizeof(Node) == 0, "unaligned HREFK slot");
@@ -1325,7 +1325,7 @@ static void asm_hrefk(ASMState *as, IRIns *ir)
     }
   }
   asm_guardcc(as, CC_NE);
-#if LJ_64
+#if LJ_64 && (!defined(LUAJIT_USE_VALGRIND) || LJ_GC64)
   if (!irt_ispri(irkey->t)) {
     Reg key = ra_scratch(as, rset_exclude(RSET_GPR, node));
     emit_rmro(as, XO_CMP, key|REX_64, node,
@@ -1898,6 +1898,17 @@ static void asm_cnew(ASMState *as, IRIns *ir)
     return;
   }
 
+#ifdef COUNTS
+  /* Increment cdatanum counter by address directly. */
+  emit_i8(as, 1);
+#if LJ_GC64
+  emit_rmro(as, XO_ARITHi8, XOg_ADD|REX_64, RID_DISPATCH,
+	    dispofs(as, &J2G(as->J)->gc.cdatanum));
+#else
+  emit_rmro(as, XO_ARITHi8, XOg_ADD, RID_NONE,
+	    ptr2addr(&J2G(as->J)->gc.cdatanum));
+#endif
+#endif
   /* Combine initialization of marked, gct and ctypeid. */
   emit_movmroi(as, RID_RET, offsetof(GCcdata, gcflags),
                (int32_t)((~LJ_TCDATA << 8) + (id << 16)));

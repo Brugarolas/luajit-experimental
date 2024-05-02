@@ -95,10 +95,7 @@ inline void *lj_arena_alloc(arena_context *ctx)
 inline void lj_arena_free(arena_context *ctx, void *p)
 {
   if (ctx->freelist_at == ARENA_FREELIST_SIZE) {
-    ctx->freepages(ctx->pageud,
-                   ctx->freelist +
-                       (ARENA_FREELIST_SIZE - ARENA_FREELIST_CHUNK),
-                   ARENA_FREELIST_CHUNK);
+    ctx->freepages(ctx->pageud, ctx->freelist + (ARENA_FREELIST_SIZE - ARENA_FREELIST_CHUNK), ARENA_FREELIST_CHUNK);
     ctx->freelist_at -= ARENA_FREELIST_CHUNK;
     ctx->mem_commit -= ARENA_FREELIST_CHUNK;
   }

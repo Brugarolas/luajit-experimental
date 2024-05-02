@@ -9,6 +9,7 @@
 #define lj_gc_c
 #define LUA_CORE
 
+#include "lj_arena.h"
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
@@ -250,6 +251,19 @@ void lj_gc_separateudata(global_State *g)
       ud->mark[i] &= ~ud->fin_req[i];
   }
   gc_presweep_udata(g, (GCAudata *)g->gc.udata);
+}
+
+/* Mark userdata in mmudata list. */
+static void gc_mark_mmudata(global_State *g)
+{
+  GCobj *root = gcref(g->gc.mmudata);
+  GCobj *u = root;
+  if (u) {
+    do {
+      u = gcnext(u);
+      gc_markobj(g, u);
+    } while (u != root);
+  }
 }
 
 /* -- Propagation phase --------------------------------------------------- */
@@ -779,6 +793,7 @@ static void gc_free_arena(global_State *g, GCArenaHdr *a)
     if (!a->free[FREE_HIGH_INDEX(otype)])                                      \
       free &= ~(1ull << FREE_HIGH_INDEX(otype));                               \
   }
+
 #define sweep_fixup2(atype, otype)                                             \
   free &= FREE_MASK(otype) & ~1ull;                                            \
   a->free[0] = 0;                                                              \
@@ -1810,6 +1825,7 @@ void lj_gc_freeall(global_State *g)
   /* Free everything, except super-fixed objects (the main thread). */
   g->gc.safecolor = LJ_GC_SFIXED;
   gc_fullsweep(g, &g->gc.root);
+
   /* Only track malloced data from this point. */
   g->gc.total = g->gc.malloc;
 
@@ -1851,6 +1867,11 @@ static void atomic(global_State *g, lua_State *L)
   gc_presweep_udata(g, (GCAudata *)g->gc.udata);
   udsize = gc_propagate_gray(g);
 
+  setgcrefnull(g->gc.fin_list);
+  gc_presweep_fintab(g, (GCAtab*)g->gc.fintab);
+  gc_presweep_udata(g, (GCAudata *)g->gc.udata);
+  udsize += gc_propagate_gray(g);
+
   /* All marking done, clear weak tables. */
   gc_clearweak(g, gcref(g->gc.weak));
   gc_clearweak(g, gcref(g->gc.ephemeron));
@@ -1860,6 +1881,7 @@ static void atomic(global_State *g, lua_State *L)
   /* Prepare for sweep phase. */
   /* Gray is for strings which are gray while sweeping */
   g->gc.safecolor = g->gc.currentblack | LJ_GC_GRAY | LJ_GC_SFIXED;
+
   if (!isminor(g)) {
     /* Need to keep the thread list around */
     setgcrefnull(g->gc.grayagain_th);

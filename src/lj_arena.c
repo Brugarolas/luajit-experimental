@@ -274,13 +274,13 @@ static void *lj_arena_api_rawalloc(void *ud, void *p, size_t osz, size_t nsz)
   return NULL;
 }
 
-#define lj_arena_firstalloc(g, arena, id, atype, type, init)                   \
+#define lj_arena_firstalloc(g, arena, id, atype, type, do_arena_init)          \
   {                                                                            \
     atype *a = (atype *)lj_arena_alloc(&g->gc.ctx);                            \
     if (!a)                                                                    \
       return 0;                                                                \
     arena = &a->hdr;                                                           \
-    init(a, g, id, atype, type);                                               \
+    do_arena_init(a, g, id, atype, type);                                      \
   }
 
 static int lj_blob_firstalloc(global_State *g, GCAblob **h)

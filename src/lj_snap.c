@@ -1020,6 +1020,9 @@ const BCIns *lj_snap_restore(jit_State *J, void *exptr)
     L->top = frame + snap->nslots;
     break;
   }
+#ifdef COUNTS
+  J->nsnaprestore++;
+#endif
   return pc;
 }
 

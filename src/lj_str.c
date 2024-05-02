@@ -21,6 +21,15 @@
 int32_t LJ_FASTCALL lj_str_cmp(GCstr *a, GCstr *b)
 {
   MSize i, n = a->len > b->len ? b->len : a->len;
+#ifdef LUAJIT_USE_VALGRIND
+  for (i = 0; i < n; i++) {
+    uint8_t va = *(const uint8_t *)(strdata(a)+i);
+    uint8_t vb = *(const uint8_t *)(strdata(b)+i);
+    if (va != vb) {
+        return va < vb ? -1 : 1;
+    }
+  }
+#else
   for (i = 0; i < n; i += 4) {
     /* Note: innocuous access up to end of string + 3. */
     uint32_t va = *(const uint32_t *)(strdata(a)+i);
@@ -37,6 +46,7 @@ int32_t LJ_FASTCALL lj_str_cmp(GCstr *a, GCstr *b)
       return va < vb ? -1 : 1;
     }
   }
+#endif
   return (int32_t)(a->len - b->len);
 }
 
@@ -74,8 +84,22 @@ int lj_str_haspattern(GCstr *s)
 
 /* -- String hashing ------------------------------------------------------ */
 
+#ifdef LJ_HAS_OPTIMISED_HASH
+static StrHash hash_sparse_def (uint64_t, const char *, MSize);
+str_sparse_hashfn hash_sparse = hash_sparse_def;
+#if LUAJIT_SECURITY_STRHASH
+static StrHash hash_dense_def(uint64_t, StrHash, const char *, MSize);
+str_dense_hashfn hash_dense = hash_dense_def;
+#endif
+#else
+#define hash_sparse hash_sparse_def
+#if LUAJIT_SECURITY_STRHASH
+#define hash_dense hash_dense_def
+#endif
+#endif
+
 /* Keyed sparse ARX string hash. Constant time. */
-static StrHash hash_sparse(uint64_t seed, const char *str, MSize len)
+static StrHash hash_sparse_def(uint64_t seed, const char *str, MSize len)
 {
   /* Constants taken from lookup3 hash by Bob Jenkins. */
   StrHash a, b, h = len ^ (StrHash)seed;
@@ -352,6 +376,7 @@ static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len, StrHash has
   s->sid = g->str.id++;
 #else
   s->sid = (StrID)lj_prng_u64(&g->prng);
+#endif
 #endif
   s->reserved = 0;
   /* Clear last 4 bytes of allocated memory. Implies zero-termination, too. */

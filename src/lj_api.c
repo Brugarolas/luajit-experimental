@@ -854,11 +854,12 @@ LUA_API void lua_getfield(lua_State *L, int idx, const char *k)
   incr_top(L);
 }
 
-LUA_API void lua_rawget(lua_State *L, int idx)
+LUA_API int lua_rawget(lua_State *L, int idx) // PATCH: return value changed to int
 {
   cTValue *t = index2adr(L, idx);
   lj_checkapi(tvistab(t), "stack slot %d is not a table", idx);
   copyTV(L, L->top-1, lj_tab_get(L, tabV(t), L->top-1));
+  return itype(L->top-1);  // PATCH: return type of value
 }
 
 LUA_API void lua_rawgeti(lua_State *L, int idx, int n)
@@ -866,6 +867,19 @@ LUA_API void lua_rawgeti(lua_State *L, int idx, int n)
   cTValue *v, *t = index2adr(L, idx);
   lj_checkapi(tvistab(t), "stack slot %d is not a table", idx);
   v = lj_tab_getint(tabV(t), n);
+  if (v) {
+    copyTV(L, L->top, v);
+  } else {
+    setnilV(L->top);
+  }
+  incr_top(L);
+}
+
+LUA_API void lua_rawgetp(lua_State *L, int idx, const void *p) // PATCH: new function, note that it does not return an int like upstream
+{
+  cTValue *v, *t = index2adr(L, idx);
+  lj_checkapi(tvistab(t), "stack slot %d is not a table", idx);
+  v = lj_tab_get(L, tabV(t), p);
   if (v) {
     copyTV(L, L->top, v);
   } else {
@@ -1236,6 +1250,36 @@ LUA_API int lua_isyieldable(lua_State *L)
   return cframe_canyield(L->cframe);
 }
 
+LUA_API void lua_resetthread(lua_State *L, lua_State *th)
+{
+  TValue *stend, *st;
+
+  th->dummy_ffid = FF_C;
+  th->status = LUA_OK;
+
+  setmrefr(th->glref, L->glref);
+  setgcrefr(th->env, L->env);
+
+  th->cframe = NULL;
+
+  st = tvref(th->stack);
+
+  if (st != NULL) {
+    lj_state_relimitstack(th);
+
+    stend = st + th->stacksize;
+    st++; /* Needed for curr_funcisL() on empty stack. */
+    if (LJ_FR2) st++;
+    th->base = th->top = st;
+    lj_func_closeuv(L, st);
+    while (st < stend)  /* Clear new slots. */
+      setnilV(st++);
+  }
+
+  th->exdata = L->exdata;
+  th->exdata2 = L->exdata2;
+}
+
 LUA_API int lua_yield(lua_State *L, int nresults)
 {
   void *cf = L->cframe;
@@ -1355,4 +1399,24 @@ LUA_API void lua_setallocf(lua_State *L, lua_Alloc f, void *ud)
 LUA_API size_t luaJIT_getpagesize()
 {
   return ARENA_SIZE;
+}
+
+LUA_API void lua_setexdata(lua_State *L, void *exdata)
+{
+  L->exdata = exdata;
+}
+
+LUA_API void *lua_getexdata(lua_State *L)
+{
+  return L->exdata;
+}
+
+LUA_API void lua_setexdata2(lua_State *L, void *exdata2)
+{
+  L->exdata2 = exdata2;
+}
+
+LUA_API void *lua_getexdata2(lua_State *L)
+{
+  return L->exdata2;
 }

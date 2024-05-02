@@ -226,8 +226,7 @@ static void close_state(lua_State *L)
   }
 #endif
   lj_arena_cleanup(g);
-  lj_mem_freevec(g, g->str.secondary_list, g->str.secondary_list_capacity,
-                 MRef);
+  lj_mem_freevec(g, g->str.secondary_list, g->str.secondary_list_capacity, MRef);
   lj_assertG(g->gc.ctx.mem_commit == 0, "memory leak of %u arenas",
              g->gc.ctx.mem_commit);
   lj_assertG(g->gc.ctx.mem_huge == 0, "memory leak of %llu huge arena bytes",
@@ -325,6 +324,8 @@ lua_State *lj_newstate(lua_Alloc allocf, void *allocd,
     return NULL;
   }
   L->status = LUA_OK;
+  L->exdata = NULL;
+  L->exdata2 = NULL;
   return L;
 }
 
@@ -400,5 +401,8 @@ void LJ_FASTCALL lj_state_free(global_State *g, lua_State *L)
   }
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
   lj_mem_freet(g, L);
+#ifdef COUNTS
+  g->gc.thnum--;
+#endif
 }
 

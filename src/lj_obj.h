@@ -709,6 +709,9 @@ typedef struct global_State {
   uint8_t dispatchmode;	/* Dispatch mode. */
   uint8_t vmevmask;	/* VM event mask. */
   StrInternState str;	/* String interning. */
+#ifdef COUNTS
+  ssize_t strnum;	/* same as str.num but can be reset */
+#endif
   volatile int32_t vmstate;  /* VM state or current JIT code trace number. */
   GCRef mainthref;	/* Link to main thread. */
   SBuf tmpbuf;		/* Temporary string buffer. */
@@ -728,6 +731,7 @@ typedef struct global_State {
   PRNGState prng;	/* Global PRNG state. */
   GCRef meta_root; /* Root of metatable strings */
   GCRef gcroot[GCROOT_MAX];  /* GC roots. */
+  MRef saved_jit_base;  /* saved jit_base for lj_err_throw */
 } global_State;
 
 #define mainthread(g)	(&gcref(g->mainthref)->th)
@@ -769,6 +773,12 @@ struct lua_State {
   GCRef env;		/* Thread environment (table of globals). */
   void *cframe;		/* End of C stack frame chain. */
   MSize stacksize;	/* True stack size (incl. LJ_STACK_EXTRA). */
+  void *exdata;	        /* user extra data pointer. added by OpenResty */
+  void *exdata2;	/* the 2nd user extra data pointer. added by OpenResty */
+#if LJ_TARGET_ARM
+  uint32_t unused1;
+  uint32_t unused2;
+#endif
 };
 
 #define G(L)			(mref(L->glref, global_State))

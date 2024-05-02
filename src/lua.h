@@ -112,6 +112,9 @@ LUA_API lua_State *(lua_newstate) (lua_Alloc f, void *ud);
 LUA_API void       (lua_close) (lua_State *L);
 LUA_API lua_State *(lua_newthread) (lua_State *L);
 
+#define HAVE_LUA_RESETTHREAD  1
+LUA_API void	   (lua_resetthread) (lua_State *L, lua_State *th);
+
 LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
 
 
@@ -177,8 +180,9 @@ LUA_API int   (lua_pushthread) (lua_State *L);
 */
 LUA_API void  (lua_gettable) (lua_State *L, int idx);
 LUA_API void  (lua_getfield) (lua_State *L, int idx, const char *k);
-LUA_API void  (lua_rawget) (lua_State *L, int idx);
+LUA_API int   (lua_rawget) (lua_State *L, int idx); // PATCH: return value changed to int
 LUA_API void  (lua_rawgeti) (lua_State *L, int idx, int n);
+LUA_API void  (lua_rawgetp) (lua_State *L, int idx, const void *p); // PATCH: new function, note that it does not return an int like upstream
 LUA_API void  (lua_createtable) (lua_State *L, int narr, int nrec);
 LUA_API void *(lua_newuserdata) (lua_State *L, size_t sz);
 LUA_API int   (lua_getmetatable) (lua_State *L, int objindex);
@@ -245,7 +249,12 @@ LUA_API void  (lua_concat) (lua_State *L, int n);
 LUA_API lua_Alloc (lua_getallocf) (lua_State *L, void **ud);
 LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
+LUA_API void lua_setexdata(lua_State *L, void *exdata);
+LUA_API void *lua_getexdata(lua_State *L);
 
+#define HAVE_LUA_EXDATA2 1
+LUA_API void lua_setexdata2(lua_State *L, void *exdata2);
+LUA_API void *lua_getexdata2(lua_State *L);
 
 /*
 ** ===============================================================
@@ -274,6 +283,10 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 #define lua_pushliteral(L, s)	\
 	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
+
+// PATCH: define lua_pushglobaltable macro, taken from upstream
+#define lua_pushglobaltable(L) \
+  lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_GLOBALSINDEX)
 
 #define lua_setglobal(L,s)	lua_setfield(L, LUA_GLOBALSINDEX, (s))
 #define lua_getglobal(L,s)	lua_getfield(L, LUA_GLOBALSINDEX, (s))

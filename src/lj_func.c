@@ -90,6 +90,9 @@ GCfunc *lj_func_newC(lua_State *L, MSize nelems, GCtab *env)
   /* NOBARRIER: The GCfunc is new (marked white). */
   setmref(fn->c.pc, &G(L)->bc_cfunc_ext);
   setgcref(fn->c.env, obj2gco(env));
+#ifdef COUNTS
+  G(L)->gc.fnum++;
+#endif
   return fn;
 }
 
@@ -105,6 +108,9 @@ static GCfunc *func_newL(lua_State *L, GCproto *pt, GCtab *env)
   /* Saturating 3 bit counter (0..7) for created closures. */
   count = (uint32_t)pt->flags + PROTO_CLCOUNT;
   pt->flags = (uint8_t)(count - ((count >> PROTO_CLC_BITS) & PROTO_CLCOUNT));
+#ifdef COUNTS
+  G(L)->gc.fnum++;
+#endif
   return fn;
 }
 
@@ -152,4 +158,14 @@ GCfunc *lj_func_newL_gc(lua_State *L, GCproto *pt, GCfuncL *parent)
   }
   fn->l.nupvalues = (uint8_t)nuv;
   return fn;
+}
+
+void LJ_FASTCALL lj_func_free(global_State *g, GCfunc *fn)
+{
+  MSize size = isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues) :
+			       sizeCfunc((MSize)fn->c.nupvalues);
+  lj_mem_free(g, fn, size);
+#ifdef COUNTS
+  g->gc.fnum--;
+#endif
 }
