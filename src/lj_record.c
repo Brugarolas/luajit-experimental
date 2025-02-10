@@ -2124,7 +2124,7 @@ static TValue *rec_mm_concat_cp(lua_State *L, lua_CFunction dummy, void *ud)
     J->maxslot = (BCReg)(top - J->base);
     lua_assert(base == top);
     /* rec_check_ir(J); rec_check_slots(J); */
-    return dp;
+    return NULL;
   } else
 #endif
   if (tref_isnumber_str(top[0]) && tref_isnumber_str(top[-1])) {
