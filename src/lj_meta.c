@@ -250,7 +250,7 @@ TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
     /* Convert 2-3 concatenated numbers into a range,
        see also lj_record.c:rec_cat. */
     if (!ljmad_range_id) {
-        GCstr *name = lj_str_newlit(L, "range");
+        GCstr *name = lj_str_newlit(L, "range_");
         CTState *cts = ctype_cts(L);
         CType *ct;
         CTypeID id = lj_ctype_getname(cts, &ct, name, 1u<<CT_STRUCT);

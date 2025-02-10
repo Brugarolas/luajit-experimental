@@ -156,7 +156,7 @@
 #undef  assert
 #define assert(c) ((void)( (c) || (__assert_fail(#c, __FILE__, __LINE__, __func__),1) ))
 
-void __assert_fail(const char *assertion, const char *file, int line, const char *function);
+void __myassert_fail(const char *assertion, const char *file, int line, const char *function);
 #endif // LJMAD_ASSERT_EXTRA
 
 #endif
