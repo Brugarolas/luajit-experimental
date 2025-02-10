@@ -1,6 +1,6 @@
 /*
 ** C type management.
-** Copyright (C) 2005-2022 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2025 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -582,7 +582,7 @@ GCstr *lj_ctype_repr_int64(lua_State *L, uint64_t n, int isunsigned)
   if (isunsigned) {
     *--p = 'U';
   } else if ((int64_t)n < 0) {
-    n = (uint64_t)-(int64_t)n;
+    n = ~n+1u;
     sign = 1;
   }
   do { *--p = (char)('0' + n % 10); } while (n /= 10);
@@ -641,6 +641,18 @@ CTState *lj_ctype_init(lua_State *L)
   }
   setmref(G(L)->ctype_state, cts);
   return cts;
+}
+
+/* Create special weak-keyed finalizer table. */
+void lj_ctype_initfin(lua_State *L)
+{
+  /* NOBARRIER: The table is new (marked white). */
+  GCtab *t = lj_tab_new(L, 0, 1);
+  setgcref(t->metatable, obj2gco(t));
+  setstrV(L, lj_tab_setstr(L, t, lj_str_newlit(L, "__mode")),
+	  lj_str_newlit(L, "k"));
+  t->nomm = (uint8_t)(~(1u<<MM_mode));
+  setgcref(G(L)->gcroot[GCROOT_FFI_FIN], obj2gco(t));
 }
 
 /* Free C type table and state. */
