@@ -1525,7 +1525,7 @@ static CPscl cp_decl_spec(CPState *cp, CPDecl *decl, CPscl scl)
       continue;
     }
     if (sz || tdef ||
-        (cds & (CDF_SHORT|CDF_LONG|CDF_SIGNED|CDF_UNSIGNED|CDF_COMPLEX)))
+	(cds & (CDF_SHORT|CDF_LONG|CDF_SIGNED|CDF_UNSIGNED|CDF_COMPLEX)))
       break;
     switch (cp->tok) {
     case CTOK_STRUCT:

@@ -32,58 +32,6 @@
 #include "lj_target.h"
 #include "lj_prng.h"
 
-/* -- Extra Tracing Features -------------------------------------------------*/
-#include <stdio.h>                                  /* LD: 2019.02.21 (Dario) */
-
-/* Global variables to disable/enable extra LJ traces from LuaJIT FFI. */
-/* Warning: not thread safe! */
-int  ljmad_ljtrace_debug         = 0 ;
-char ljmad_ljtrace_message[ 120] = "";
-char ljmad_ljtrace_hottbls[5000] = "";
-
-#if LJ_GC64
-#define PFMT "0x%012lx"
-#else
-#define PFMT "0x%08lx"
-#endif
-
-static void /* Print hotcount table */
-print_hotcount_table(jit_State *J)
-{
-  int cnt = snprintf(ljmad_ljtrace_hottbls, sizeof ljmad_ljtrace_hottbls,
-		     "**** HOTCOUNT TABLE\n");
-
-  for(int i=0;i<HOTCOUNT_SIZE;i+=8) {
-    cnt += snprintf(ljmad_ljtrace_hottbls+cnt, sizeof ljmad_ljtrace_hottbls-cnt,
-		    " [%2d]=%3d  [%2d]=%3d  [%2d]=%3d  [%2d]=%3d"
-		    " [%2d]=%3d  [%2d]=%3d  [%2d]=%3d  [%2d]=%3d\n",
-		    i+0,(J2GG(J))->hotcount[i+0], i+1,(J2GG(J))->hotcount[i+1],
-		    i+2,(J2GG(J))->hotcount[i+2], i+3,(J2GG(J))->hotcount[i+3],
-		    i+4,(J2GG(J))->hotcount[i+4], i+5,(J2GG(J))->hotcount[i+5],
-		    i+6,(J2GG(J))->hotcount[i+6], i+7,(J2GG(J))->hotcount[i+7]);
-  }
-}
-
-static void /* Print hotpenalty table */
-print_hotpenalty_table(jit_State *J)
-{
-  int cnt = strlen(ljmad_ljtrace_hottbls);
-  cnt += snprintf(ljmad_ljtrace_hottbls+cnt, sizeof ljmad_ljtrace_hottbls-cnt,
-	  "**** HOTPENALTY TABLE penaltyslot=%u (round-robin index)\n",
-	  J->penaltyslot);
-
-  for (int i=0; i<PENALTY_SLOTS; i++) {
-    if (J->penalty[i].val == 0 && i != J->penaltyslot) continue;
-    cnt += snprintf(ljmad_ljtrace_hottbls+cnt, sizeof ljmad_ljtrace_hottbls-cnt,
-		    " [%2u]:  PC = " PFMT "  penalty = %5u  reason = %2u\n",
-#if LJ_GC64
-	    i, (ptrdiff_t)J->penalty[i].pc.ptr64, J->penalty[i].val, J->penalty[i].reason);
-#else
-	    i, (ptrdiff_t)J->penalty[i].pc.ptr32, J->penalty[i].val, J->penalty[i].reason);
-#endif
-  }
-}
-
 /* -- Error handling ------------------------------------------------------ */
 
 /* Synchronous abort with error message. */
@@ -440,9 +388,6 @@ static void blacklist_pc(GCproto *pt, BCIns *pc)
 /* Penalize a bytecode instruction. */
 static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
 {
-  if (ljmad_ljtrace_debug > 1)                      /* LD: 2019.01.21 (Dario) */
-    print_hotpenalty_table(J);
-
   uint32_t i, val = PENALTY_MIN;
   for (i = 0; i < PENALTY_SLOTS; i++)
     if (mref(J->penalty[i].pc, const BCIns) == pc) {  /* Cache slot found? */
@@ -450,14 +395,6 @@ static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
       val = ((uint32_t)J->penalty[i].val << 1) +
 	    (lj_prng_u64(&J2G(J)->prng) & ((1u<<PENALTY_RNDBITS)-1));
       if (val > PENALTY_MAX) {
-	if (ljmad_ljtrace_debug) {                  /* LD: 2019.01.25 (Dario) */
-	  int cnt = snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-	     "---- TRACE %d info blacklist penalty=%u > %u errno=%d"
-	     " -- PC=" PFMT, J->cur.traceno, val, PENALTY_MAX, e, (ptrdiff_t)pc);
-	  if (ljmad_ljtrace_debug > 1)
-	    snprintf(ljmad_ljtrace_message+cnt, sizeof ljmad_ljtrace_message - cnt,
-		     " [%d]", (u32ptr(pc+1)>>2) & (HOTCOUNT_SIZE-1));
-	}
 	blacklist_pc(pt, pc);  /* Blacklist it, if that didn't help. */
 	return;
       }
@@ -468,14 +405,6 @@ static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
   J->penaltyslot = (J->penaltyslot + 1) & (PENALTY_SLOTS-1);
   setmref(J->penalty[i].pc, pc);
 setpenalty:
-  if (ljmad_ljtrace_debug) {                        /* LD: 2019.01.25 (Dario) */
-    int cnt = snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-	     "---- TRACE %d info abort pc penalty=%u errno=%d -- PC=" PFMT,
-	     J->cur.traceno, val, e, (ptrdiff_t)pc);
-    if (ljmad_ljtrace_debug > 1)
-      snprintf(ljmad_ljtrace_message+cnt, sizeof ljmad_ljtrace_message - cnt,
-	       " [%d]", (u32ptr(pc+1)>>2) & (HOTCOUNT_SIZE-1));
-  }
   J->penalty[i].val = (uint16_t)val;
   J->penalty[i].reason = e;
   hotcount_set(J2GG(J), pc+1, val);
@@ -621,21 +550,6 @@ static void trace_stop(jit_State *J)
   J->postproc = LJ_POST_NONE;
   trace_save(J, T);
 
-  if (ljmad_ljtrace_debug) {                        /* LD: 2019.02.22 (Dario) */
-    BCIns *startpc = mref(J->cur.startpc, BCIns);
-    if (J->parent == 0) { /* root trace [TODO check TraceAnalyse.mad] */
-      int cnt = snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-	       "---- TRACE %d info success root trace compilation -- PC=" PFMT,
-	       traceno, (ptrdiff_t)startpc);
-      if (ljmad_ljtrace_debug > 1)
-	snprintf(ljmad_ljtrace_message+cnt, sizeof ljmad_ljtrace_message - cnt,
-		 " [%d]", (u32ptr(startpc+1)>>2) & (HOTCOUNT_SIZE-1));
-    } else               /* side trace [TODO check TraceAnalyse.mad] */
-      snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-	       "---- TRACE %d info success side trace compilation -- PC=" PFMT,
-		traceno, (ptrdiff_t)startpc);
-  }
-
   L = J->L;
   lj_vmevent_send(L, TRACE,
     setstrV(L, L->top++, lj_str_newlit(L, "stop"));
@@ -679,37 +593,15 @@ static int trace_abort(jit_State *J)
     J->state = LJ_TRACE_ASM;
     return 1;  /* Retry ASM with new MCode area. */
   }
-
-  BCIns *startpc = mref(J->cur.startpc, BCIns);     /* LD: 2019.01.25 (Dario) */
-
   /* Penalize or blacklist starting bytecode instruction. */
   if (J->parent == 0 && !bc_isret(bc_op(J->cur.startins))) {
-
-    if (J->exitno == 0) {
-      /* Mike Pall declared startpc here (moved above) */
-      /* BCIns *startpc = mref(J->cur.startpc, BCIns); */
-      if (e == LJ_TRERR_RETRY) {
-	if (ljmad_ljtrace_debug) {                  /* LD: 2019.01.25 (Dario) */
-	  snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-		   "---- TRACE %d info abort immediate retry errno=%d -- PC=" PFMT,
-		   J->cur.traceno, e, (ptrdiff_t)startpc);
-	}
-	hotcount_set(J2GG(J), startpc+1, 1);  /* Immediate retry. */
-      }
-      else
-	penalty_pc(J, &gcref(J->cur.startpt)->pt, startpc, e);
-    } else {
-      if (ljmad_ljtrace_debug) {                    /* LD: 2019.01.25 (Dario) */
-	snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-		 "---- TRACE %d info abort self-link blacklisted errno=%d "
-		 "-- PC=" PFMT, J->cur.traceno, e, (ptrdiff_t)startpc);
-      }
+    BCIns *startpc = mref(J->cur.startpc, BCIns);
+    if (e == LJ_TRERR_RETRY) {
+	   hotcount_set(J2GG(J), startpc+1, 1);  /* Immediate retry. */
+    else
+	   penalty_pc(J, &gcref(J->cur.startpt)->pt, startpc, e);
+  } else {
       traceref(J, J->exitno)->link = J->exitno;  /* Self-link is blacklisted. */
-    }
-  } else if (ljmad_ljtrace_debug) {                 /* LD: 2019.01.25 (Dario) */
-    snprintf(ljmad_ljtrace_message, sizeof ljmad_ljtrace_message,
-	     "---- TRACE %d info abort no penalty errno=%d -- PC=" PFMT,
-	     J->cur.traceno, e, (ptrdiff_t)startpc);
   }
 
   /* Is there anything to abort? */
@@ -881,7 +773,6 @@ void LJ_FASTCALL lj_trace_hot(jit_State *J, const BCIns *pc)
   /* Only start a new trace if not recording or inside __gc call or vmevent. */
   if (J->state == LJ_TRACE_IDLE &&
       !(J2G(J)->hookmask & (HOOK_GC|HOOK_VMEVENT))) {
-    if (ljmad_ljtrace_debug > 1) print_hotcount_table(J);
     J->parent = 0;  /* Root trace. */
     J->exitno = 0;
     J->state = LJ_TRACE_START;
