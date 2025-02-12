@@ -60,7 +60,7 @@ LJ_STATIC_ASSERT(((int)CT_STRUCT & (int)CT_ARRAY) == CT_STRUCT);
 **        ^^  ^^--- bits used for C type conversion dispatch
 */
 
-/* C type info flags.     TFFArrrr  CType[4], Flags[8], Align[4], ChildID[16] */
+/* C type info flags.     TFFArrrr  */
 #define CTF_BOOL	0x08000000u	/* Boolean: NUM, BITFIELD. */
 #define CTF_FP		0x04000000u	/* Floating-point: NUM. */
 #define CTF_CONST	0x02000000u	/* Const qualifier. */
