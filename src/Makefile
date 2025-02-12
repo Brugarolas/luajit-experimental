@@ -121,9 +121,6 @@ XCFLAGS+= -DLJMAD_LAMBDA_SYNTAX
 # Support for local 'in' table syntax
 XCFLAGS+= -DLJMAD_LOCAL_INTABLE
 #
-# Support for num..num[..num] to create struct range cdata
-XCFLAGS+= -DLJMAD_RANGE_SYNTAX
-#
 # Support for '!' single line comment
 XCFLAGS+= -DLJMAD_COMMENT_EMARK
 #
