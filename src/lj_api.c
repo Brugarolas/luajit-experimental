@@ -41,7 +41,11 @@ static inline uint64_t get_high_resolution_time(void)
 static inline uint64_t get_high_resolution_time(void)
 {
   struct timespec ts;
+#ifdef CLOCK_MONOTONIC_RAW
   clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+#else
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+#endif
   return 1000000000ULL * ts.tv_sec + ts.tv_nsec;
 }
 #endif
