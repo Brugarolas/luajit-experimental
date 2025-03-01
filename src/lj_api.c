@@ -26,6 +26,49 @@
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 
+#if LJ_TARGET_POSIX
+#include <time.h>
+#endif
+
+#if LJ_TARGET_WINDOWS
+static inline uint64_t get_high_resolution_time(void)
+{
+  LARGE_INTEGER cnt;
+  QueryPerformanceCounter(&cnt);
+  return cnt.QuadPart;
+}
+#elif LJ_TARGET_POSIX
+static inline uint64_t get_high_resolution_time(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+  return 1000000000ULL * ts.tv_sec + ts.tv_nsec;
+}
+#endif
+
+static int gc_step_timeout(lua_State *L, uint32_t timeout_usec)
+{
+#if LJ_TARGET_WINDOWS || LJ_TARGET_POSIX
+  int res = 0;
+  uint64_t timeout = timeout_usec * 1000;
+
+  uint64_t time_current = get_high_resolution_time();
+
+  timeout += time_current;
+  while (time_current < timeout) {
+    if (lj_gc_step(L) > 0) {
+      res = 1;
+      break;
+    }
+
+    time_current = get_high_resolution_time();
+  }
+  return res;
+#else
+  return -1;
+#endif
+}
+
 /* -- Common helper functions --------------------------------------------- */
 
 #define lj_checkapi_slot(idx) \
@@ -1299,11 +1342,17 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     g->gc.threshold = (a <= g->gc.total) ? (g->gc.total - a) : 0;
     while (g->gc.total >= g->gc.threshold)
       if (lj_gc_step(L) > 0) {
-	res = 1;
-	break;
+        res = 1;
+        break;
       }
     break;
   }
+  case LUA_GCTIMEOUT:
+    res = gc_step_timeout(L, (uint32_t)data);
+    if (res >= 0) {
+      g->gc.threshold = LJ_MAX_MEM;
+    }
+    break;
   case LUA_GCSETPAUSE:
     res = (int)(g->gc.pause);
     g->gc.pause = (MSize)data;
