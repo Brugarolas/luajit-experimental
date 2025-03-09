@@ -172,6 +172,8 @@ static void emit_asm_wordreloc(BuildCtx *ctx, uint8_t *p, int n,
 	  "Error: unsupported opcode %08x for %s symbol relocation.\n",
 	  ins, sym);
   exit(1);
+#elif LJ_TARGET_E2K
+  /* ureachable */
 #else
 #error "missing relocation support for this architecture"
 #endif
@@ -319,6 +321,13 @@ void emit_asm(BuildCtx *ctx)
 	emit_asm_reloc(ctx, r->type, ctx->relocsym[r->sym]);
       }
       ofs += n+4;
+#elif LJ_TARGET_E2K
+      int size = (r->type & 0xf) * 2 * 4;
+      int addend = size - ((r->type >> 4) * 4);  // backwards offset for p[-ofs]
+      int offset = n - size;
+      fprintf(ctx->fp, "\t.reloc . + %d, R_E2K_DISP, %s + %d\n", offset + addend , ctx->relocsym[r->sym], addend);
+      emit_asm_words(ctx, ctx->code+ofs, n);
+      ofs += n;
 #else
       emit_asm_wordreloc(ctx, ctx->code+ofs, n, ctx->relocsym[r->sym]);
       ofs += n;
